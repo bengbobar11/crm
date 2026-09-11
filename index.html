@@ -2132,10 +2132,16 @@ function b64Encode(u8) {
     return btoa(s);
 }
 function b64Decode(b64) {
-    const bin = atob(b64);
-    const u8 = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    return u8;
+    try {
+        // 兼容性：部分手机浏览器 atob 不忽略换行/空白，先清理（Gitee 返回的 base64 可能含 \n）
+        const clean = String(b64).replace(/\s+/g, '');
+        const bin = atob(clean);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        return u8;
+    } catch (e) {
+        throw new Error('云端文件内容格式异常（base64 解码失败）：请确认云端 crm-data.json 是由本系统同步生成的文件，未被其他工具修改；可删除该文件后重新同步');
+    }
 }
 
 // 组装仓库 API 路径：用户名/仓库名 必须分开编码、保留斜杠分隔
@@ -2248,8 +2254,14 @@ async function cloudPull(branch) {
         actualBranch = '';
     }
     if (!file) return null;
-    const jsonStr = new TextDecoder().decode(b64Decode(file.content));
-    return { data: await cloudDeserialize(JSON.parse(jsonStr)), updatedAt: file.updated_at || null, branch: actualBranch };
+    try {
+        const jsonStr = new TextDecoder().decode(b64Decode(file.content));
+        const parsed = JSON.parse(jsonStr);
+        return { data: await cloudDeserialize(parsed), updatedAt: file.updated_at || null, branch: actualBranch };
+    } catch (e) {
+        if (e && (e.message === 'DECRYPT_FAIL' || /base64/.test(e.message))) throw e;   // 解密失败/编码问题放行给上层做友好提示
+        throw new Error('云端 crm-data.json 内容不是有效数据：可能被其他工具修改或写入不完整，请在 Gitee 仓库中删除该文件后重新同步');
+    }
 }
 
 // 推送本地数据（读-改-写：先读远端 sha 再写入，避免覆盖他人刚推送的版本）
