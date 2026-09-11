@@ -2138,6 +2138,14 @@ function b64Decode(b64) {
     return u8;
 }
 
+// 组装仓库 API 路径：用户名/仓库名 必须分开编码、保留斜杠分隔
+// （若整体 encodeURIComponent 会把 "/" 编码成 %2F，Gitee 路由无法识别，返回 404）
+function buildRepoPath(repo) {
+    const parts = String(repo || '').split('/');
+    if (parts.length === 2) return encodeURIComponent(parts[0]) + '/' + encodeURIComponent(parts[1]);
+    return encodeURIComponent(repo);
+}
+
 // 获取仓库默认分支（解决仓库默认分支不是 master 时拉取 404 导致静默跳过的问题）
 // 分支缓存与仓库绑定：只有同一仓库才复用缓存，避免换仓库后沿用旧分支导致读写位置不一致
 async function getCloudDefaultBranch() {
@@ -2145,7 +2153,7 @@ async function getCloudDefaultBranch() {
     if (!cfg) return 'master';
     if (cfg.branch && cfg.branchRepo === cfg.repo) return cfg.branch;
     try {
-        const res = await fetch(`https://gitee.com/api/v5/repos/${encodeURIComponent(cfg.repo)}?access_token=${encodeURIComponent(cfg.token)}`, { cache: 'no-store' });
+        const res = await fetch(`https://gitee.com/api/v5/repos/${buildRepoPath(cfg.repo)}?access_token=${encodeURIComponent(cfg.token)}`, { cache: 'no-store' });
         if (res.ok) {
             const info = await res.json();
             if (info.default_branch) {
@@ -2166,7 +2174,7 @@ async function getCloudDefaultBranch() {
 async function giteeFileApi(method, body, branch) {
     const cfg = getCloudConfig();
     if (!cfg || !cfg.repo || !cfg.token) throw new Error('请先保存云同步配置');
-    let url = `https://gitee.com/api/v5/repos/${encodeURIComponent(cfg.repo)}/contents/${CLOUD_FILE_PATH}?access_token=${encodeURIComponent(cfg.token)}`;
+    let url = `https://gitee.com/api/v5/repos/${buildRepoPath(cfg.repo)}/contents/${CLOUD_FILE_PATH}?access_token=${encodeURIComponent(cfg.token)}`;
     // cache: 'no-store' 保证每次拉取最新云端数据，不使用 HTTP 缓存
     const opts = { method, headers: {}, cache: 'no-store' };
     if (body) {
