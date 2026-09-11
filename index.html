@@ -305,6 +305,39 @@
                 <button id="closeSync" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
             </div>
             
+            <div class="mb-6 p-4 border-2 border-primary/40 rounded-xl bg-gradient-to-br from-teal-50/70 to-white">
+                <button class="w-full flex justify-between items-center py-2 font-semibold" onclick="document.getElementById('cloudSyncBox').classList.toggle('hidden')">
+                    <span><i class="fa fa-cloud text-primary mr-2"></i>云端一键同步（手机 ↔ 电脑）</span>
+                    <span id="cloudSyncBadge" class="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap">未配置</span>
+                </button>
+                <div id="cloudSyncBox" class="hidden mt-4">
+                    <div id="cloudSyncState" class="hidden mb-3 p-3 rounded-lg text-sm"></div>
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold shrink-0">1</div>
+                        <div class="flex-1 flex gap-2">
+                            <input type="text" id="cloudOwnerRepo" placeholder="Gitee 仓库地址，如：用户名/crm-sync" class="flex-1 min-w-0">
+                            <input type="password" id="cloudToken" placeholder="私人令牌（access_token）" class="flex-1 min-w-0">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 mb-3 pl-9">
+                        <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer whitespace-nowrap">
+                            <input type="checkbox" id="cloudEncrypt" checked> 端到端加密
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer whitespace-nowrap">
+                            <input type="checkbox" id="cloudAutoSync"> 自动同步
+                        </label>
+                        <button id="saveCloudConfigBtn" class="ml-auto px-4 py-1.5 text-sm bg-primary text-white rounded-lg btn-glass whitespace-nowrap">保存配置</button>
+                    </div>
+                    <button id="cloudSyncNowBtn" class="w-full py-2.5 bg-primary text-white rounded-lg font-medium btn-glass btn-glow btn-glow-primary">
+                        <i class="fa fa-refresh mr-2"></i>立即云同步
+                    </button>
+                    <p class="text-xs text-gray-500 mt-3 leading-relaxed">
+                        <b>自动同步</b>：打开页面自动拉取、数据修改后自动推送，手机与电脑填写同一配置即可保持数据一致。<br>
+                        <b>如何获取配置</b>：注册/登录 gitee.com → 新建<b>私有仓库</b> → 设置 → 私人令牌 → 生成（勾选 projects 权限）→ 将 用户名/仓库名 与令牌填入上方。启用加密时两端同步密钥需一致。
+                    </p>
+                </div>
+            </div>
+
             <div class="mb-6 p-4 border border-gray-200 rounded-xl">
                 <button class="w-full flex justify-between items-center py-2 font-semibold" onclick="document.getElementById('manualSyncBox').classList.toggle('hidden')">
                     <span><i class="fa fa-cog mr-2"></i>手动同步（加密同步码）</span>
@@ -719,6 +752,7 @@ async function saveData() {
     try {
         await dbPut('crm_data', data);
         scheduleAutoBackup(); // 数据变更后调度自动备份
+        scheduleAutoPush();   // 云同步：数据变更后自动推送（若已开启）
     } catch (e) { 
         showToast('数据保存失败：存储空间不足，请备份后清理');
         console.error(e);
@@ -2020,11 +2054,11 @@ function mergeById(localArr, remoteArr) {
         if (!item || item.id == null) return;
         const existing = map.get(item.id);
         if (!existing) { map.set(item.id, item); return; }
-        // 同 id 记录按 updatedAt 取最新版本，缺失时间视为更旧
+        // 同 id 记录按 updatedAt 取最新版本；时间戳相同时保留本地版本（避免覆盖刚保存的修改）
         const curTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : -Infinity;
         const newTime = item.updatedAt ? new Date(item.updatedAt).getTime() : -Infinity;
         if (isNaN(curTime)) { map.set(item.id, item); return; }
-        if (isNaN(newTime) || newTime >= curTime) map.set(item.id, item);
+        if (isNaN(newTime) || newTime > curTime) map.set(item.id, item);
     });
     return Array.from(map.values());
 }
@@ -2072,6 +2106,218 @@ async function importSyncCode() {
         document.getElementById('syncCodeInput').value = '';
     } catch (e) {
         showToast('同步失败：同步码无效或密钥错误');
+    }
+}
+
+// ==================== 云同步（Gitee 仓库，手机/电脑一键同步） ====================
+const CLOUD_CFG_KEY = 'crm_cloud_config';
+const CLOUD_FILE_PATH = 'crm-data.json';
+const CLOUD_SALT = new TextEncoder().encode('crm-cloud-sync-salt-v1');
+let _cloudSyncing = false;      // 防止云同步触发的 saveData 再次触发推送
+let _autoPushTimer = null;
+
+function getCloudConfig() {
+    try { return JSON.parse(localStorage.getItem(CLOUD_CFG_KEY)) || null; } catch (e) { return null; }
+}
+function saveCloudConfig(cfg) { localStorage.setItem(CLOUD_CFG_KEY, JSON.stringify(cfg)); }
+function getSyncKey() {
+    const saved = localStorage.getItem(SYNC_KEY_STORAGE);
+    if (saved) return saved;
+    const input = document.getElementById('syncKeyInput');
+    return input ? input.value.trim() : '';
+}
+function b64Encode(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+}
+function b64Decode(b64) {
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+}
+
+// Gitee 仓库文件 API（已实测支持浏览器跨域 CORS）
+async function giteeFileApi(method, body) {
+    const cfg = getCloudConfig();
+    if (!cfg || !cfg.repo || !cfg.token) throw new Error('请先保存云同步配置');
+    const url = `https://gitee.com/api/v5/repos/${encodeURIComponent(cfg.repo)}/contents/${CLOUD_FILE_PATH}?access_token=${encodeURIComponent(cfg.token)}`;
+    // cache: 'no-store' 保证每次拉取最新云端数据，不使用 HTTP 缓存
+    const opts = { method, headers: {}, cache: 'no-store' };
+    if (body) { opts.headers['Content-Type'] = 'application/json;charset=UTF-8'; opts.body = JSON.stringify(body); }
+    let res;
+    try { res = await fetch(url, opts); }
+    catch (e) { throw new Error('网络错误，无法连接 Gitee'); }
+    if (res.status === 401) throw new Error('私人令牌无效或已过期');
+    if (res.status === 403) throw new Error('令牌无仓库权限或被限流');
+    if (res.status === 404) return null;                 // 文件不存在
+    if (res.status === 409) throw new Error('云端刚被其他设备更新，请重试');
+    if (!res.ok) throw new Error('请求失败（HTTP ' + res.status + '）');
+    return res.json();
+}
+
+// 端到端加密：AES-GCM，密钥由同步密钥 PBKDF2 派生
+async function deriveCloudKey() {
+    const keyStr = getSyncKey();
+    if (!keyStr) throw new Error('启用加密需要先设置同步密钥');
+    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(keyStr), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: CLOUD_SALT, iterations: 100000, hash: 'SHA-256' },
+        material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+}
+async function cloudEncrypt(obj) {
+    const key = await deriveCloudKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+    return { v: 1, iv: b64Encode(iv), data: b64Encode(new Uint8Array(ct)) };
+}
+async function cloudDecrypt(payload) {
+    const key = await deriveCloudKey();
+    const pt = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: b64Decode(payload.iv) },
+        key,
+        b64Decode(payload.data)
+    );
+    return JSON.parse(new TextDecoder().decode(pt));
+}
+async function cloudSerialize() {
+    const cfg = getCloudConfig();
+    if (cfg.encrypt) return { enc: 1, payload: await cloudEncrypt(data) };
+    return { enc: 0, payload: data };
+}
+async function cloudDeserialize(obj) {
+    if (obj.enc === 1) return cloudDecrypt(obj.payload);
+    return obj.payload;
+}
+
+// 拉取云端数据（返回 data 对象或 null）
+async function cloudPull() {
+    const file = await giteeFileApi('GET');
+    if (!file) return null;
+    const jsonStr = new TextDecoder().decode(b64Decode(file.content));
+    return cloudDeserialize(JSON.parse(jsonStr));
+}
+
+// 推送本地数据（读-改-写：先读远端 sha 再写入，避免覆盖他人刚推送的版本）
+async function cloudPush() {
+    const cfg = getCloudConfig();
+    const payload = await cloudSerialize();
+    const content = b64Encode(new TextEncoder().encode(JSON.stringify(payload)));
+    const body = { access_token: cfg.token, content, message: 'CRM cloud sync ' + new Date().toISOString() };
+    const existing = await giteeFileApi('GET');
+    if (existing && existing.sha) body.sha = existing.sha;
+    return giteeFileApi('POST', body);
+}
+
+function setCloudState(msg, cls) {
+    const el = document.getElementById('cloudSyncState');
+    if (!el) return;
+    el.className = 'mb-3 p-3 rounded-lg text-sm ' + (cls || '');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    if (msg.startsWith('同步成功')) {
+        localStorage.setItem('crm_cloud_last_sync', Date.now().toString());
+    }
+    updateCloudBadge();
+}
+function updateCloudBadge() {
+    const badge = document.getElementById('cloudSyncBadge');
+    const cfg = getCloudConfig();
+    const last = localStorage.getItem('crm_cloud_last_sync');
+    if (!badge) return;
+    if (!cfg || !cfg.repo || !cfg.token) { badge.textContent = '未配置'; badge.className = 'text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap'; return; }
+    if (!last) { badge.textContent = '已配置·未同步'; badge.className = 'text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 whitespace-nowrap'; return; }
+    const d = new Date(Number(last));
+    const t = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    badge.textContent = '已同步 ' + t;
+    badge.className = 'text-xs px-2.5 py-1 rounded-full bg-green-50 text-green-600 whitespace-nowrap';
+}
+
+// 一键云同步：拉取 → 合并（按 updatedAt 取新，不丢数据）→ 推送
+async function cloudSync(showMsg) {
+    const cfg = getCloudConfig();
+    if (!cfg || !cfg.repo || !cfg.token) {
+        if (showMsg) showToast('请先保存云同步配置');
+        return;
+    }
+    if (_cloudSyncing) return;
+    _cloudSyncing = true;
+    setCloudState('正在同步…');
+    try {
+        if (cfg.encrypt && typeof crypto === 'undefined' || (cfg.encrypt && !crypto.subtle)) {
+            throw new Error('当前环境不支持加密（需 HTTPS），请关闭加密后重试');
+        }
+        const remote = await cloudPull();
+        if (remote) {
+            const before = JSON.stringify(data);
+            mergeData(remote);
+            if (JSON.stringify(data) !== before) await saveData();
+        }
+        await cloudPush();
+        const now = new Date();
+        setCloudState(`同步成功（${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}），云端与本地数据已一致`, 'bg-green-50 text-green-600 border border-green-200');
+        if (showMsg) showToast('云同步完成');
+    } catch (e) {
+        setCloudState('同步失败：' + e.message, 'bg-red-50 text-red-600 border border-red-200');
+        if (showMsg) showToast('云同步失败：' + e.message);
+    } finally {
+        _cloudSyncing = false;
+    }
+}
+
+// 自动同步：数据变更后防抖推送
+function scheduleAutoPush() {
+    const cfg = getCloudConfig();
+    if (!cfg || !cfg.autoSync || _cloudSyncing) return;
+    clearTimeout(_autoPushTimer);
+    _autoPushTimer = setTimeout(() => { cloudSync(false); }, 8000);
+}
+
+// 初始化云同步 UI 与自动拉取
+function bindCloudSyncUI() {
+    const cfg = getCloudConfig() || {};
+    document.getElementById('cloudOwnerRepo').value = cfg.repo || '';
+    document.getElementById('cloudToken').value = cfg.token || '';
+    document.getElementById('cloudEncrypt').checked = cfg.encrypt !== false;
+    document.getElementById('cloudAutoSync').checked = !!cfg.autoSync;
+    updateCloudBadge();
+    if (cfg.repo && cfg.token) {
+        setCloudState('配置已就绪，可点击"立即云同步"', 'bg-blue-50 text-blue-600 border border-blue-200');
+    }
+    document.getElementById('saveCloudConfigBtn').onclick = () => {
+        const repo = document.getElementById('cloudOwnerRepo').value.trim();
+        const token = document.getElementById('cloudToken').value.trim();
+        if (!repo || !token) return showToast('请填写仓库地址和私人令牌');
+        if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return showToast('仓库地址格式应为：用户名/仓库名');
+        const encrypt = document.getElementById('cloudEncrypt').checked;
+        if (encrypt && !getSyncKey()) return showToast('启用加密前，请先在"手动同步"中设置同步密钥');
+        saveCloudConfig({
+            repo, token, encrypt,
+            autoSync: document.getElementById('cloudAutoSync').checked
+        });
+        setCloudState('配置已保存，点击"立即云同步"开始使用', 'bg-green-50 text-green-600 border border-green-200');
+        updateCloudBadge();
+        showToast('云同步配置已保存');
+    };
+    document.getElementById('cloudSyncNowBtn').onclick = () => cloudSync(true);
+    document.getElementById('cloudAutoSync').onchange = (e) => {
+        const cfg = getCloudConfig();
+        if (cfg) { cfg.autoSync = e.target.checked; saveCloudConfig(cfg); }
+        showToast(e.target.checked ? '已开启自动同步（修改后自动推送、打开自动拉取）' : '已关闭自动同步');
+    };
+    document.getElementById('cloudEncrypt').onchange = (e) => {
+        if (e.target.checked && !getSyncKey()) {
+            showToast('启用加密需要先设置同步密钥');
+            e.target.checked = false;
+        }
+    };
+}
+function initCloudSyncAutoPull() {
+    const cfg = getCloudConfig();
+    if (cfg && cfg.autoSync && cfg.repo && cfg.token) {
+        setTimeout(() => { cloudSync(false); }, 4000);
     }
 }
 
@@ -2197,6 +2443,8 @@ async function init() {
     setVH();
     window.addEventListener('resize', setVH);
     initPWA();
+    bindCloudSyncUI();
+    initCloudSyncAutoPull();
 
     // 按钮事件
     document.getElementById('addBtn').onclick = () => {
