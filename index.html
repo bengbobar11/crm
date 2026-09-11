@@ -2210,7 +2210,12 @@ async function giteeFileApi(method, body, branch) {
         throw new Error('云端写入失败（HTTP 404）：请检查仓库是否已"初始化"（新建仓库时勾选"初始化仓库"生成 README，确保有默认分支），或确认仓库名/分支正确');
     }
     if (res.status === 409) throw new Error('云端刚被其他设备更新，请重试');
-    if (res.status === 400) throw new Error('请求无效（HTTP 400）：写入参数与云端分支不匹配，请确认仓库默认分支设置正确后重试');
+    if (res.status === 400) {
+        // GET 400 = ref 指定的分支不存在/无效（Gitee 对无效分支返回 400 而非 404）
+        // → 当作"该分支无文件"，由调用方兜底到默认分支，避免整次同步失败
+        if (method === 'GET') return null;
+        throw new Error('请求无效（HTTP 400）：写入参数与云端分支不匹配，请确认仓库默认分支设置正确后重试');
+    }
     if (!res.ok) throw new Error('请求失败（HTTP ' + res.status + '）：' + method + (branch ? '（分支 ' + branch + '）' : '（默认分支）'));
     return res.json();
 }
@@ -2276,7 +2281,8 @@ async function cloudPull(branch) {
 }
 
 // 推送本地数据（读-改-写：先读远端 sha 再写入，避免覆盖他人刚推送的版本）
-// 关键：sha 必须与写入分支匹配——若文件只在默认分支读到，就写回默认分支，避免 sha 错位导致 400
+// 关键：sha 必须与写入分支匹配——若文件只在默认分支读到，就写回默认分支，避免 sha 错位
+// 注意：Gitee API 区分 POST（新建文件）/ PUT（更新文件），已有文件必须用 PUT，否则返回 400
 async function cloudPush(branch) {
     const cfg = getCloudConfig();
     const payload = await cloudSerialize();
@@ -2289,7 +2295,16 @@ async function cloudPush(branch) {
         targetBranch = '';                       // 文件在默认位置 → 写回默认位置（sha 才能匹配）
     }
     if (existing && existing.sha) body.sha = existing.sha;
-    await giteeFileApi('POST', body, targetBranch);
+    const method = (existing && existing.sha) ? 'PUT' : 'POST';
+    try {
+        await giteeFileApi(method, body, targetBranch);
+    } catch (e) {
+        // PUT 更新时文件刚被其他端删除 → 回退为创建
+        if (method === 'PUT' && /404/.test(e.message)) {
+            delete body.sha;
+            await giteeFileApi('POST', body, targetBranch);
+        } else throw e;
+    }
     // 写回验证：上传后再读一次，确保文件真正落盘且内容可解析（防止"提示成功但云端无文件/文件损坏"）
     const verify = await giteeFileApi('GET', null, targetBranch) || await giteeFileApi('GET');
     if (!verify) throw new Error('上传未生效：请检查仓库是否已初始化（是否存在默认分支），可在 Gitee 仓库页面勾选"初始化仓库"或手动创建一个文件后再试');
@@ -2335,27 +2350,28 @@ function updateCloudBadge() {
 }
 
 // 重置云端损坏文件：读取 sha 后调用 Gitee DELETE 接口删除 crm-data.json
+// 返回 { deleted, branch }：branch 为实际删除文件所在分支（用于修正缓存）
 async function cloudResetRemote(branch) {
     const cfg = getCloudConfig();
+    let foundBranch = branch;
     let file = await giteeFileApi('GET', null, branch);
-    let targetBranch = branch;
     if (!file) {
         file = await giteeFileApi('GET');
-        targetBranch = '';
+        foundBranch = '';
     }
-    if (!file || !file.sha) return false;   // 云端本来就没有文件
+    if (!file || !file.sha) return { deleted: false, branch: foundBranch };   // 云端本来就没有文件
     const delBody = { sha: file.sha, message: 'CRM cloud reset (corrupt file)' };
-    if (targetBranch) delBody.branch = targetBranch;   // 删除文件所在分支，避免删错位置
+    if (foundBranch) delBody.branch = foundBranch;   // 删除文件所在分支，避免删错位置
     const res = await fetch(`https://gitee.com/api/v5/repos/${buildRepoPath(cfg.repo)}/contents/${CLOUD_FILE_PATH}?access_token=${encodeURIComponent(cfg.token)}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json;charset=UTF-8' },
         cache: 'no-store',
         body: JSON.stringify(delBody)
     });
-    if (res.status === 404) return true;    // 已不存在，视为删除成功
+    if (res.status === 404) return { deleted: true, branch: foundBranch };    // 已不存在，视为删除成功
     if (res.status === 401) throw new Error('重置云端失败：令牌无删除权限，请到 Gitee 网页端手动删除 crm-data.json');
     if (!res.ok) throw new Error('重置云端失败（HTTP ' + res.status + '）：请到 Gitee 网页端手动删除 crm-data.json 后重试');
-    return true;
+    return { deleted: true, branch: foundBranch };
 }
 
 // 一键云同步：拉取 → 合并（按 updatedAt 取新，不丢数据）→ 推送
@@ -2380,8 +2396,14 @@ async function cloudSync(showMsg) {
         } catch (pullErr) {
             // 云端文件损坏（base64/JSON 解析失败）：自动重置后重新上传，避免死循环
             if (!/格式异常|不是有效数据/.test(pullErr.message)) throw pullErr;
-            await cloudResetRemote(branch);
+            const reset = await cloudResetRemote(branch);
             autoReset = true;
+            // 用实际文件所在分支修正缓存，避免下次再走错误分支
+            if (reset && reset.branch !== undefined) {
+                cfg.branch = reset.branch;
+                cfg.branchRepo = cfg.repo;
+                saveCloudConfig(cfg);
+            }
         }
         let remoteCount = 0;
         if (remoteInfo) {
@@ -2389,6 +2411,12 @@ async function cloudSync(showMsg) {
             const before = JSON.stringify(data);
             mergeData(remoteInfo.data);
             if (JSON.stringify(data) !== before) await saveData();
+            // 用实际读到文件的分支修正缓存
+            if (remoteInfo.branch !== undefined) {
+                cfg.branch = remoteInfo.branch || '';
+                cfg.branchRepo = cfg.repo;
+                saveCloudConfig(cfg);
+            }
         }
         await cloudPush(branch);
         const now = new Date();
