@@ -2326,6 +2326,24 @@ function updateCloudBadge() {
     badge.className = 'text-xs px-2.5 py-1 rounded-full bg-green-50 text-green-600 whitespace-nowrap';
 }
 
+// 重置云端损坏文件：读取 sha 后调用 Gitee DELETE 接口删除 crm-data.json
+async function cloudResetRemote(branch) {
+    const cfg = getCloudConfig();
+    let file = await giteeFileApi('GET', null, branch);
+    if (!file) file = await giteeFileApi('GET');
+    if (!file || !file.sha) return false;   // 云端本来就没有文件
+    const res = await fetch(`https://gitee.com/api/v5/repos/${buildRepoPath(cfg.repo)}/contents/${CLOUD_FILE_PATH}?access_token=${encodeURIComponent(cfg.token)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+        cache: 'no-store',
+        body: JSON.stringify({ sha: file.sha, message: 'CRM cloud reset (corrupt file)' })
+    });
+    if (res.status === 404) return true;    // 已不存在，视为删除成功
+    if (res.status === 401) throw new Error('重置云端失败：令牌无删除权限，请到 Gitee 网页端手动删除 crm-data.json');
+    if (!res.ok) throw new Error('重置云端失败（HTTP ' + res.status + '）：请到 Gitee 网页端手动删除 crm-data.json 后重试');
+    return true;
+}
+
 // 一键云同步：拉取 → 合并（按 updatedAt 取新，不丢数据）→ 推送
 async function cloudSync(showMsg) {
     const cfg = getCloudConfig();
@@ -2341,7 +2359,16 @@ async function cloudSync(showMsg) {
             throw new Error('当前环境不支持加密（需 HTTPS），请关闭加密后重试');
         }
         const branch = await getCloudDefaultBranch();
-        const remoteInfo = await cloudPull(branch);
+        let remoteInfo = null;
+        let autoReset = false;
+        try {
+            remoteInfo = await cloudPull(branch);
+        } catch (pullErr) {
+            // 云端文件损坏（base64/JSON 解析失败）：自动重置后重新上传，避免死循环
+            if (!/格式异常|不是有效数据/.test(pullErr.message)) throw pullErr;
+            await cloudResetRemote(branch);
+            autoReset = true;
+        }
         let remoteCount = 0;
         if (remoteInfo) {
             remoteCount = countRecords(remoteInfo.data);
@@ -2353,7 +2380,10 @@ async function cloudSync(showMsg) {
         const now = new Date();
         const time = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
         const localCount = countRecords(data);
-        if (remoteInfo) {
+        if (autoReset) {
+            setCloudState(`已修复并重新上传（${time}）：检测到云端文件损坏，已自动重建，本地 ${localCount} 条已推送到云端`, 'bg-amber-50 text-amber-700 border border-amber-200');
+            if (showMsg) showToast(`云端文件损坏已自动重建，本地 ${localCount} 条已上传`);
+        } else if (remoteInfo) {
             setCloudState(`同步成功（${time}）：已合并云端 ${remoteCount} 条，本地共 ${localCount} 条` + (remoteInfo.updatedAt ? `，云端更新于 ${formatDate(remoteInfo.updatedAt)}` : '') + `（分支 ${branch || '默认'}）`, 'bg-green-50 text-green-600 border border-green-200');
             if (showMsg) showToast(`云同步完成：已合并云端 ${remoteCount} 条数据`);
         } else {
