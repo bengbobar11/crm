@@ -2180,7 +2180,11 @@ async function giteeFileApi(method, body, branch) {
     catch (e) { throw new Error('网络错误，无法连接 Gitee'); }
     if (res.status === 401) throw new Error('私人令牌无效或已过期');
     if (res.status === 403) throw new Error('令牌无仓库权限或被限流');
-    if (res.status === 404) return null;                 // 文件不存在
+    if (res.status === 404) {
+        // GET/PUT 404 = 文件不存在（正常）；但 POST/PUT 写失败（404 多为分支不存在/仓库未初始化）绝不能伪装成成功
+        if (method === 'GET') return null;
+        throw new Error('云端写入失败（HTTP 404）：请检查仓库是否已"初始化"（新建仓库时勾选"初始化仓库"生成 README，确保有默认分支），或确认仓库名/分支正确');
+    }
     if (res.status === 409) throw new Error('云端刚被其他设备更新，请重试');
     if (!res.ok) throw new Error('请求失败（HTTP ' + res.status + '）');
     return res.json();
@@ -2249,7 +2253,11 @@ async function cloudPush(branch) {
     let existing = await giteeFileApi('GET', null, branch);
     if (!existing) existing = await giteeFileApi('GET');   // 兜底：历史文件可能在默认位置
     if (existing && existing.sha) body.sha = existing.sha;
-    return giteeFileApi('POST', body, branch);
+    await giteeFileApi('POST', body, branch);
+    // 写回验证：上传后再读一次，确保文件真正落盘（防止"提示成功但云端无文件"）
+    const verify = await giteeFileApi('GET', null, branch) || await giteeFileApi('GET');
+    if (!verify) throw new Error('上传未生效：请检查仓库是否已初始化（是否存在默认分支），可在 Gitee 仓库页面勾选"初始化仓库"或手动创建一个文件后再试');
+    return verify;
 }
 
 // 统计记录数（用于同步结果提示）
