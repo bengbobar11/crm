@@ -2139,21 +2139,26 @@ function b64Decode(b64) {
 }
 
 // 获取仓库默认分支（解决仓库默认分支不是 master 时拉取 404 导致静默跳过的问题）
+// 分支缓存与仓库绑定：只有同一仓库才复用缓存，避免换仓库后沿用旧分支导致读写位置不一致
 async function getCloudDefaultBranch() {
     const cfg = getCloudConfig();
     if (!cfg) return 'master';
-    if (cfg.branch) return cfg.branch;
+    if (cfg.branch && cfg.branchRepo === cfg.repo) return cfg.branch;
     try {
         const res = await fetch(`https://gitee.com/api/v5/repos/${encodeURIComponent(cfg.repo)}?access_token=${encodeURIComponent(cfg.token)}`, { cache: 'no-store' });
         if (res.ok) {
             const info = await res.json();
             if (info.default_branch) {
                 cfg.branch = info.default_branch;
+                cfg.branchRepo = cfg.repo;
                 saveCloudConfig(cfg);
                 return cfg.branch;
             }
         }
     } catch (e) { /* 忽略，回退 master */ }
+    cfg.branch = 'master';
+    cfg.branchRepo = cfg.repo;
+    saveCloudConfig(cfg);
     return 'master';
 }
 
@@ -2221,12 +2226,18 @@ async function cloudDeserialize(obj) {
     return obj.payload;
 }
 
-// 拉取云端数据（返回 {data, updatedAt} 或 null）
+// 拉取云端数据（返回 {data, updatedAt, branch} 或 null）
+// 优先从探测分支读取；404 时兜底不带 ref（Gitee 默认分支），兼容历史文件位置
 async function cloudPull(branch) {
-    const file = await giteeFileApi('GET', null, branch);
+    let file = await giteeFileApi('GET', null, branch);
+    let actualBranch = branch;
+    if (!file) {
+        file = await giteeFileApi('GET');
+        actualBranch = '';
+    }
     if (!file) return null;
     const jsonStr = new TextDecoder().decode(b64Decode(file.content));
-    return { data: await cloudDeserialize(JSON.parse(jsonStr)), updatedAt: file.updated_at || null };
+    return { data: await cloudDeserialize(JSON.parse(jsonStr)), updatedAt: file.updated_at || null, branch: actualBranch };
 }
 
 // 推送本地数据（读-改-写：先读远端 sha 再写入，避免覆盖他人刚推送的版本）
@@ -2235,7 +2246,8 @@ async function cloudPush(branch) {
     const payload = await cloudSerialize();
     const content = b64Encode(new TextEncoder().encode(JSON.stringify(payload)));
     const body = { access_token: cfg.token, content, message: 'CRM cloud sync ' + new Date().toISOString() };
-    const existing = await giteeFileApi('GET', null, branch);
+    let existing = await giteeFileApi('GET', null, branch);
+    if (!existing) existing = await giteeFileApi('GET');   // 兜底：历史文件可能在默认位置
     if (existing && existing.sha) body.sha = existing.sha;
     return giteeFileApi('POST', body, branch);
 }
@@ -2301,10 +2313,10 @@ async function cloudSync(showMsg) {
         const time = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
         const localCount = countRecords(data);
         if (remoteInfo) {
-            setCloudState(`同步成功（${time}）：已合并云端 ${remoteCount} 条，本地共 ${localCount} 条` + (remoteInfo.updatedAt ? `，云端更新于 ${formatDate(remoteInfo.updatedAt)}` : ''), 'bg-green-50 text-green-600 border border-green-200');
+            setCloudState(`同步成功（${time}）：已合并云端 ${remoteCount} 条，本地共 ${localCount} 条` + (remoteInfo.updatedAt ? `，云端更新于 ${formatDate(remoteInfo.updatedAt)}` : '') + `（分支 ${branch || '默认'}）`, 'bg-green-50 text-green-600 border border-green-200');
             if (showMsg) showToast(`云同步完成：已合并云端 ${remoteCount} 条数据`);
         } else {
-            setCloudState(`已上传本地数据（${time}）：云端此前没有数据，本地 ${localCount} 条已推送到云端`, 'bg-blue-50 text-blue-600 border border-blue-200');
+            setCloudState(`已上传本地数据（${time}）：云端此前没有数据（分支 ${branch || '默认'}），本地 ${localCount} 条已推送到云端`, 'bg-blue-50 text-blue-600 border border-blue-200');
             if (showMsg) showToast(`云端此前无数据，本地 ${localCount} 条已上传`);
         }
     } catch (e) {
