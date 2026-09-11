@@ -2133,9 +2133,17 @@ function b64Encode(u8) {
 }
 function b64Decode(b64) {
     try {
-        // 兼容性：部分手机浏览器 atob 不忽略换行/空白，先清理（Gitee 返回的 base64 可能含 \n）
-        const clean = String(b64).replace(/\s+/g, '');
-        const bin = atob(clean);
+        // 兼容性加固：
+        // 1) 清理换行/空白（部分手机浏览器 atob 不忽略）
+        // 2) URL-safe base64 变体（- _ 转回 + /）
+        // 3) 缺失 padding 自动补齐（部分服务端返回无补位 base64）
+        let s = String(b64).replace(/\s+/g, '');
+        if (s.length === 0) return new Uint8Array(0);
+        if (/[-_]/.test(s)) s = s.replace(/-/g, '+').replace(/_/g, '/');
+        const rem = s.length % 4;
+        if (rem === 1) throw new Error('len');
+        if (rem) s += '='.repeat(4 - rem);
+        const bin = atob(s);
         const u8 = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
         return u8;
@@ -2274,9 +2282,14 @@ async function cloudPush(branch) {
     if (!existing) existing = await giteeFileApi('GET');   // 兜底：历史文件可能在默认位置
     if (existing && existing.sha) body.sha = existing.sha;
     await giteeFileApi('POST', body, branch);
-    // 写回验证：上传后再读一次，确保文件真正落盘（防止"提示成功但云端无文件"）
+    // 写回验证：上传后再读一次，确保文件真正落盘且内容可解析（防止"提示成功但云端无文件/文件损坏"）
     const verify = await giteeFileApi('GET', null, branch) || await giteeFileApi('GET');
     if (!verify) throw new Error('上传未生效：请检查仓库是否已初始化（是否存在默认分支），可在 Gitee 仓库页面勾选"初始化仓库"或手动创建一个文件后再试');
+    try {
+        JSON.parse(new TextDecoder().decode(b64Decode(verify.content)));
+    } catch (e2) {
+        throw new Error('上传后读回异常：云端文件可能被截断或写入不完整，请在 Gitee 仓库中删除 crm-data.json 后重新同步');
+    }
     return verify;
 }
 
