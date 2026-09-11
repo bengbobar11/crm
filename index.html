@@ -2177,11 +2177,11 @@ async function getCloudDefaultBranch() {
                 return cfg.branch;
             }
         }
-    } catch (e) { /* 忽略，回退 master */ }
-    cfg.branch = 'master';
+    } catch (e) { /* 忽略，回退 Gitee 默认分支（不指定分支，避免用不存在的 master） */ }
+    cfg.branch = '';
     cfg.branchRepo = cfg.repo;
     saveCloudConfig(cfg);
-    return 'master';
+    return '';
 }
 
 // Gitee 仓库文件 API（已实测支持浏览器跨域 CORS）
@@ -2193,6 +2193,8 @@ async function giteeFileApi(method, body, branch) {
     const opts = { method, headers: {}, cache: 'no-store' };
     if (body) {
         opts.headers['Content-Type'] = 'application/json;charset=UTF-8';
+        // token 已在 URL query 中，body 里不重复携带（部分实现重复参数会返回 400）
+        delete body.access_token;
         if (branch) body.branch = branch;   // 写入指定分支
         opts.body = JSON.stringify(body);
     }
@@ -2203,12 +2205,13 @@ async function giteeFileApi(method, body, branch) {
     if (res.status === 401) throw new Error('私人令牌无效或已过期');
     if (res.status === 403) throw new Error('令牌无仓库权限或被限流');
     if (res.status === 404) {
-        // GET/PUT 404 = 文件不存在（正常）；但 POST/PUT 写失败（404 多为分支不存在/仓库未初始化）绝不能伪装成成功
+        // GET 404 = 文件不存在（正常）；但 POST 写失败（404 多为分支不存在/仓库未初始化）绝不能伪装成成功
         if (method === 'GET') return null;
         throw new Error('云端写入失败（HTTP 404）：请检查仓库是否已"初始化"（新建仓库时勾选"初始化仓库"生成 README，确保有默认分支），或确认仓库名/分支正确');
     }
     if (res.status === 409) throw new Error('云端刚被其他设备更新，请重试');
-    if (!res.ok) throw new Error('请求失败（HTTP ' + res.status + '）');
+    if (res.status === 400) throw new Error('请求无效（HTTP 400）：写入参数与云端分支不匹配，请确认仓库默认分支设置正确后重试');
+    if (!res.ok) throw new Error('请求失败（HTTP ' + res.status + '）：' + method + (branch ? '（分支 ' + branch + '）' : '（默认分支）'));
     return res.json();
 }
 
@@ -2273,17 +2276,22 @@ async function cloudPull(branch) {
 }
 
 // 推送本地数据（读-改-写：先读远端 sha 再写入，避免覆盖他人刚推送的版本）
+// 关键：sha 必须与写入分支匹配——若文件只在默认分支读到，就写回默认分支，避免 sha 错位导致 400
 async function cloudPush(branch) {
     const cfg = getCloudConfig();
     const payload = await cloudSerialize();
     const content = b64Encode(new TextEncoder().encode(JSON.stringify(payload)));
-    const body = { access_token: cfg.token, content, message: 'CRM cloud sync ' + new Date().toISOString() };
+    const body = { content, message: 'CRM cloud sync ' + new Date().toISOString() };
     let existing = await giteeFileApi('GET', null, branch);
-    if (!existing) existing = await giteeFileApi('GET');   // 兜底：历史文件可能在默认位置
+    let targetBranch = branch;
+    if (!existing) {
+        existing = await giteeFileApi('GET');   // 兜底：历史文件可能在默认位置
+        targetBranch = '';                       // 文件在默认位置 → 写回默认位置（sha 才能匹配）
+    }
     if (existing && existing.sha) body.sha = existing.sha;
-    await giteeFileApi('POST', body, branch);
+    await giteeFileApi('POST', body, targetBranch);
     // 写回验证：上传后再读一次，确保文件真正落盘且内容可解析（防止"提示成功但云端无文件/文件损坏"）
-    const verify = await giteeFileApi('GET', null, branch) || await giteeFileApi('GET');
+    const verify = await giteeFileApi('GET', null, targetBranch) || await giteeFileApi('GET');
     if (!verify) throw new Error('上传未生效：请检查仓库是否已初始化（是否存在默认分支），可在 Gitee 仓库页面勾选"初始化仓库"或手动创建一个文件后再试');
     try {
         JSON.parse(new TextDecoder().decode(b64Decode(verify.content)));
@@ -2330,13 +2338,19 @@ function updateCloudBadge() {
 async function cloudResetRemote(branch) {
     const cfg = getCloudConfig();
     let file = await giteeFileApi('GET', null, branch);
-    if (!file) file = await giteeFileApi('GET');
+    let targetBranch = branch;
+    if (!file) {
+        file = await giteeFileApi('GET');
+        targetBranch = '';
+    }
     if (!file || !file.sha) return false;   // 云端本来就没有文件
+    const delBody = { sha: file.sha, message: 'CRM cloud reset (corrupt file)' };
+    if (targetBranch) delBody.branch = targetBranch;   // 删除文件所在分支，避免删错位置
     const res = await fetch(`https://gitee.com/api/v5/repos/${buildRepoPath(cfg.repo)}/contents/${CLOUD_FILE_PATH}?access_token=${encodeURIComponent(cfg.token)}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json;charset=UTF-8' },
         cache: 'no-store',
-        body: JSON.stringify({ sha: file.sha, message: 'CRM cloud reset (corrupt file)' })
+        body: JSON.stringify(delBody)
     });
     if (res.status === 404) return true;    // 已不存在，视为删除成功
     if (res.status === 401) throw new Error('重置云端失败：令牌无删除权限，请到 Gitee 网页端手动删除 crm-data.json');
