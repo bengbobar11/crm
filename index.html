@@ -1,0 +1,2265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#0D9488">
+    <title>客户管理系统</title>
+    <!-- PWA 支持：配合同目录 manifest.json / sw.js / 图标部署到固定 HTTPS 网址后，可安装到桌面并离线使用 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet" crossorigin="anonymous">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#0D9488', secondary: '#F87171', warning: '#FBBF24', success: '#10B981', info: '#3B82F6' },
+                    fontFamily: { sans: ['HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', 'system-ui', '-apple-system', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto { content-visibility: auto; }
+            .card-shadow { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+            .tab-active { background-color: rgba(13, 148, 136, 0.25); color: #0f766e; border: 1px solid rgba(13, 148, 136, 0.4); box-shadow: 0 2px 8px rgba(13,148,136,0.15); }
+            .badge-red { background-color: #FEE2E2; color: #DC2626; border: 1px solid #FECACA; }
+            .badge-green { background-color: #D1FAE5; color: #059669; border: 1px solid #A7F3D0; }
+            .badge-yellow { background-color: #FEF3C7; color: #D97706; border: 1px solid #FDE68A; }
+            .badge-blue { background-color: #DBEAFE; color: #2563EB; border: 1px solid #BFDBFE; }
+            .animate-pulse-red { animation: pulse-red 2s infinite; }
+            @keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:0.7} }
+            @keyframes glow { 0%,100%{box-shadow: 0 0 15px currentColor;} 50%{box-shadow: 0 0 25px currentColor;} }
+            @keyframes shine { 0%{background-position: -200% 0;} 100%{background-position: 200% 0;} }
+            .btn-glow { position: relative; overflow: hidden; }
+            .btn-glow::before { content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent); animation: shine 2s infinite; }
+            .btn-glow-primary { box-shadow: 0 0 12px rgba(13,148,136,0.4); }
+            .btn-glow-red { box-shadow: 0 0 12px rgba(239,68,68,0.4); }
+            .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            .no-scrollbar::-webkit-scrollbar { display: none; }
+            .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+            .safe-top { padding-top: env(safe-area-inset-top, 0px); }
+            .h-screen-fix { height: 100vh; height: calc(var(--vh, 1vh) * 100); }
+            .min-h-screen-fix { min-height: 100vh; min-height: calc(var(--vh, 1vh) * 100); }
+        }
+    </style>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { overflow-x: hidden; width: 100%; position: relative; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+        body { background-size: cover; background-position: center; background-attachment: fixed; background-repeat: no-repeat; background-color: #f0fdfa; }
+        
+        /* 液态玻璃+光感效果 */
+        button, .btn-glass, select {
+            -webkit-backdrop-filter: blur(12px) saturate(180%) !important;
+            backdrop-filter: blur(12px) saturate(180%) !important;
+            background-color: rgba(255,255,255,0.25) !important;
+            border: 1px solid rgba(255,255,255,0.4) !important;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(0,0,0,0.05), 0 0 8px rgba(255,255,255,0.2) !important;
+            transition: all 0.2s ease !important;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        button:hover { 
+            background-color: rgba(255,255,255,0.35) !important; 
+            transform: translateY(-2px); 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -1px 0 rgba(0,0,0,0.05), 0 0 16px rgba(255,255,255,0.3) !important; 
+        }
+        button:active { transform: translateY(0px) scale(0.98); box-shadow: 0 2px 8px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -1px 0 rgba(0,0,0,0.08) !important; }
+        .bg-primary, button.bg-primary { background-color: rgba(13, 148, 136, 0.25) !important; border-color: rgba(13, 148, 136, 0.4) !important; color: #0f766e !important; box-shadow: 0 0 15px rgba(13,148,136,0.3) !important; }
+        .bg-primary:hover { background-color: rgba(13, 148, 136, 0.35) !important; box-shadow: 0 0 25px rgba(13,148,136,0.5) !important; }
+        .bg-success, button.bg-success { background-color: rgba(16, 185, 129, 0.25) !important; border-color: rgba(16, 185, 129, 0.4) !important; color: #059669 !important; box-shadow: 0 0 15px rgba(16,185,129,0.3) !important; }
+        .bg-red-500, button.bg-red-500 { background-color: rgba(239, 68, 68, 0.2) !important; border-color: rgba(239, 68, 68, 0.35) !important; color: #dc2626 !important; box-shadow: 0 0 15px rgba(239,68,68,0.3) !important; }
+        .bg-gray-100, button.bg-gray-100 { background-color: rgba(243, 244, 246, 0.4) !important; border-color: rgba(209, 213, 219, 0.5) !important; color: #4b5563 !important; box-shadow: 0 0 10px rgba(156,163,175,0.2) !important; }
+        
+        input, textarea, select {
+            -webkit-backdrop-filter: blur(8px) !important;
+            backdrop-filter: blur(8px) !important;
+            background-color: rgba(255,255,255,0.97) !important;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+            padding: 0.75rem 1rem;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            font-size: 16px !important;
+        }
+        input:focus, textarea:focus, select:focus {
+            border-color: #0D9488;
+            box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+        }
+        .rounded-2xl, .rounded-xl {
+            -webkit-backdrop-filter: blur(10px) !important;
+            backdrop-filter: blur(10px) !important;
+            background-color: rgba(255,255,255,0.85) !important;
+        }
+        header {
+            -webkit-backdrop-filter: blur(12px) !important;
+            backdrop-filter: blur(12px) !important;
+            background-color: rgba(255,255,255,0.88) !important;
+        }
+        
+        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none !important; margin: 0 !important; }
+        input[type=number] { -moz-appearance: textfield !important; }
+        
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 100; overflow-y: auto; -webkit-overflow-scrolling: touch; background-color: rgba(0,0,0,0.2); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+        .modal-content-glass { background-color: transparent !important; border: none !important; box-shadow: none !important; }
+        .modal-inner-container {
+            background-color: rgba(255,255,255,0.82);
+            -webkit-backdrop-filter: blur(28px);
+            backdrop-filter: blur(28px);
+            border-radius: 1.5rem;
+            border: 1px solid rgba(255,255,255,0.9);
+            box-shadow: 0 12px 48px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8);
+        }
+        @supports (padding: max(0px)) { .safe-pb { padding-bottom: max(20px, env(safe-area-inset-bottom)); } .safe-pt { padding-top: max(0px, env(safe-area-inset-top)); } }
+        
+        /* 卡片折叠收缩 */
+        .card-header { cursor: pointer; user-select: none; }
+        .card-collapse-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out, opacity 0.2s ease; opacity: 0; }
+        .card-expanded .card-collapse-content { max-height: 3000px; opacity: 1; transition: max-height 0.4s ease-in, opacity 0.3s ease; }
+        .card-expand-arrow { transition: transform 0.3s ease; font-size: 16px; color: #6b7280; }
+        .card-expanded .card-expand-arrow { transform: rotate(180deg); color: #0D9488; }
+        /* 水波纹效果 */
+        .ripple { position: absolute; border-radius: 50%; background: rgba(255,255,255,0.6); transform: scale(0); animation: rippleEffect 0.6s linear; pointer-events: none; }
+        @keyframes rippleEffect { to { transform: scale(4); opacity: 0; } }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-emerald-50 to-gray-50 min-h-screen-fix safe-pb w-full overflow-x-hidden">
+    <header class="bg-white/90 backdrop-blur-md sticky top-0 z-50 shadow-sm safe-pt w-full">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center gap-2 md:gap-3">
+                <div class="w-10 h-10 md:w-12 md:h-12 bg-primary rounded-xl flex items-center justify-center text-white text-xl md:text-2xl shrink-0">
+                    <i class="fa fa-address-book-o"></i>
+                </div>
+                <div class="min-w-0">
+                    <h1 class="text-lg md:text-2xl font-bold text-gray-800 truncate">客户管理系统</h1>
+                    <p class="text-xs md:text-sm text-gray-500 hidden md:block">专业客户合作管理平台 · 多端同步</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-1 md:gap-2 shrink-0">
+                <button id="syncBtn" class="hidden md:flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-gray-100 transition text-sm btn-glass">
+                    <i class="fa fa-refresh text-info"></i><span>同步</span>
+                </button>
+                <button id="syncBtnMobile" class="md:hidden flex items-center justify-center w-10 h-10 rounded-lg hover:bg-gray-100 transition btn-glass">
+                    <i class="fa fa-refresh text-info text-lg"></i>
+                </button>
+                <button id="statBtn" class="hidden md:flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-gray-100 transition text-sm btn-glass">
+                    <i class="fa fa-bar-chart text-primary"></i><span>统计</span>
+                </button>
+                <button id="statBtnMobile" class="md:hidden flex items-center justify-center w-10 h-10 rounded-lg hover:bg-gray-100 transition btn-glass">
+                    <i class="fa fa-bar-chart text-primary text-lg"></i>
+                </button>
+                <button id="exportBtn" class="hidden md:flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-gray-100 transition text-sm btn-glass">
+                    <i class="fa fa-download text-success"></i><span>导出Excel</span>
+                </button>
+                <button id="exportBtnMobile" class="md:hidden flex items-center justify-center w-10 h-10 rounded-lg hover:bg-gray-100 transition btn-glass">
+                    <i class="fa fa-download text-success text-lg"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-4">
+        <div id="pwaBanner" class="hidden mb-4 p-4 rounded-xl border border-blue-200 bg-blue-50/90">
+            <div class="flex items-start gap-3">
+                <div class="text-blue-500 text-xl mt-0.5"><i class="fa fa-mobile"></i></div>
+                <div class="flex-1">
+                    <h3 class="font-semibold text-blue-700" id="pwaBannerTitle">安装到桌面</h3>
+                    <p id="pwaBannerContent" class="text-blue-600 mt-1 text-sm"></p>
+                    <div id="pwaBannerActions" class="mt-2 flex gap-2"></div>
+                </div>
+                <button id="closePwaBanner" class="text-blue-400 hover:text-blue-600 btn-glass"><i class="fa fa-times"></i></button>
+            </div>
+        </div>
+        <div id="alertBanner" class="hidden mb-4 p-4 rounded-xl bg-red-50 border border-red-200">
+            <div class="flex items-start gap-3">
+                <div class="text-red-500 text-xl mt-0.5"><i class="fa fa-bell animate-pulse-red"></i></div>
+                <div class="flex-1">
+                    <h3 class="font-semibold text-red-700">到期/待办提醒</h3>
+                    <p id="alertContent" class="text-red-600 mt-1"></p>
+                </div>
+                <button id="closeAlert" class="text-red-400 hover:text-red-600 btn-glass"><i class="fa fa-times"></i></button>
+            </div>
+        </div>
+
+        <div class="flex bg-gray-100/60 rounded-xl p-1 mb-6 overflow-x-auto no-scrollbar">
+            <button class="tab-btn flex-1 py-3 px-4 rounded-lg font-medium transition tab-active flex items-center justify-center gap-2 btn-glass" data-tab="processing">
+                <i class="fa fa-clock-o"></i><span class="hidden sm:inline">办理中</span>
+                <span id="processingCount" class="bg-white/20 text-xs px-2 py-0.5 rounded-full">0</span>
+            </button>
+            <button class="tab-btn flex-1 py-3 px-4 rounded-lg font-medium transition flex items-center justify-center gap-2 btn-glass" data-tab="completed">
+                <i class="fa fa-check-circle-o"></i><span class="hidden sm:inline">已完结</span>
+                <span id="completedCount" class="bg-gray-200 text-xs px-2 py-0.5 rounded-full">0</span>
+            </button>
+            <button class="tab-btn flex-1 py-3 px-4 rounded-lg font-medium transition flex items-center justify-center gap-2 btn-glass" data-tab="todo">
+                <i class="fa fa-file-text-o"></i><span class="hidden sm:inline">待办理</span>
+                <span id="todoCount" class="bg-gray-200 text-xs px-2 py-0.5 rounded-full">0</span>
+            </button>
+            <button class="tab-btn flex-1 py-3 px-4 rounded-lg font-medium transition flex items-center justify-center gap-2 btn-glass" data-tab="account">
+                <i class="fa fa-money"></i><span class="hidden sm:inline">记账本</span>
+            </button>
+        </div>
+
+            <div class="mb-4 flex gap-2 flex-wrap">
+            <div class="flex-1 min-w-[200px] relative">
+                <i class="fa fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <input id="searchInput" type="text" placeholder="搜索单位/联系人/医生/证件..." class="w-full pl-10 pr-4 py-3">
+            </div>
+            <div class="flex-1 min-w-[200px] relative hidden" id="accountSearchWrapper">
+                <i class="fa fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <input id="accountSearchInput" type="text" placeholder="搜索单位/备注..." class="w-full pl-10 pr-4 py-3">
+            </div>
+            <select id="accountFilter" class="px-4 py-3 rounded-xl hidden">
+                <option value="all">全部</option>
+                <option value="month">本月</option>
+                <option value="quarter">本季度</option>
+                <option value="year">本年</option>
+            </select>
+            <div class="flex gap-2" id="filterContainer"></div>
+        </div>
+
+        <div id="contentArea" class="space-y-4">
+            <div id="processingView" class="tab-content">
+                <div id="processingList" class="grid md:grid-cols-2 gap-4"></div>
+                <div id="processingEmpty" class="hidden text-center py-16 text-gray-500">
+                    <div class="text-5xl mb-3 text-gray-300"><i class="fa fa-folder-open-o"></i></div>
+                    <p>暂无办理中客户，点击右下角+添加</p>
+                </div>
+            </div>
+            <div id="completedView" class="tab-content hidden">
+                <div id="completedList" class="grid md:grid-cols-2 gap-4"></div>
+                <div id="completedEmpty" class="hidden text-center py-16 text-gray-500">
+                    <div class="text-5xl mb-3 text-gray-300"><i class="fa fa-check-circle-o"></i></div>
+                    <p>暂无已完结客户</p>
+                </div>
+            </div>
+            <div id="todoView" class="tab-content hidden">
+                <div id="todoList" class="space-y-3"></div>
+                <div id="todoEmpty" class="hidden text-center py-16 text-gray-500">
+                    <div class="text-5xl mb-3 text-gray-300"><i class="fa fa-file-text-o"></i></div>
+                    <p>暂无待办事项，点击右下角+添加</p>
+                </div>
+            </div>
+            <div id="accountView" class="tab-content hidden">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="p-5 rounded-2xl card-shadow border border-white/40">
+                        <p class="text-sm text-gray-500">总收入</p>
+                        <p id="totalIncome" class="text-3xl font-bold text-success mt-2">¥0.00</p>
+                    </div>
+                    <div class="p-5 rounded-2xl card-shadow border border-white/40">
+                        <p class="text-sm text-gray-500">本月收入</p>
+                        <p id="monthIncome" class="text-3xl font-bold text-primary mt-2">¥0.00</p>
+                    </div>
+                    <div class="p-5 rounded-2xl card-shadow border border-white/40">
+                        <p class="text-sm text-gray-500">今日收入</p>
+                        <p id="todayIncome" class="text-3xl font-bold text-info mt-2">¥0.00</p>
+                    </div>
+                </div>
+                <div id="accountList" class="space-y-3"></div>
+                <div id="accountEmpty" class="hidden text-center py-16 text-gray-500">
+                    <div class="text-5xl mb-3 text-gray-300"><i class="fa fa-money"></i></div>
+                    <p>暂无记账记录，点击右下角+添加</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <button id="addBtn" aria-label="添加" style="position:fixed !important; width:64px; height:64px; background:linear-gradient(135deg, #14b8a6, #0d9488); border-radius:50%; color:#fff; font-size:28px; box-shadow:0 0 20px rgba(20,184,166,0.6); display:flex !important; align-items:center; justify-content:center; border:none; bottom:32px !important; right:24px !important; left:unset !important; top:unset !important; z-index:99999 !important; margin:0 !important; padding:0 !important; transform:none !important; cursor:pointer;">
+        +
+    </button>
+
+    <div id="modalContainer" class="modal-overlay z-50 hidden items-start md:items-center justify-center p-4 pt-8 safe-pb">
+        <div id="modalContent" class="w-full max-w-2xl max-h-[92vh] md:max-h-[90vh] -webkit-overflow-scrolling-touch"></div>
+    </div>
+
+    <div id="statModal" class="modal-overlay z-50 hidden items-start md:items-center justify-center p-4 pt-8 safe-pb">
+        <div class="modal-inner-container rounded-2xl w-full max-w-2xl max-h-[92vh] md:max-h-[90vh] overflow-y-auto p-6 -webkit-overflow-scrolling-touch">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold">数据统计</h2>
+                <button id="closeStat" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="p-4 bg-emerald-50 rounded-xl"><p class="text-sm text-gray-500">办理中客户</p><p id="statProcessing" class="text-2xl font-bold text-primary mt-1">0</p></div>
+                <div class="p-4 bg-blue-50 rounded-xl"><p class="text-sm text-gray-500">已完结客户</p><p id="statCompleted" class="text-2xl font-bold text-info mt-1">0</p></div>
+                <div class="p-4 bg-yellow-50 rounded-xl"><p class="text-sm text-gray-500">待办事项</p><p id="statTodo" class="text-2xl font-bold text-warning mt-1">0</p></div>
+                <div class="p-4 bg-red-50 rounded-xl"><p class="text-sm text-gray-500">待收款项</p><p id="statUnpaid" class="text-2xl font-bold text-secondary mt-1">¥0</p></div>
+            </div>
+            <div class="h-64 mb-4"><canvas id="statusChart"></canvas></div>
+            <div class="h-64"><canvas id="feeChart"></canvas></div>
+        </div>
+    </div>
+
+    <div id="syncModal" class="modal-overlay z-50 hidden items-start md:items-center justify-center p-4 pt-8 safe-pb">
+        <div class="modal-inner-container rounded-2xl w-full max-w-2xl max-h-[92vh] md:max-h-[90vh] overflow-y-auto p-6 -webkit-overflow-scrolling-touch">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold">数据同步与备份</h2>
+                <button id="closeSync" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
+            </div>
+            
+            <div class="mb-6 p-4 border border-gray-200 rounded-xl">
+                <button class="w-full flex justify-between items-center py-2 font-semibold" onclick="document.getElementById('manualSyncBox').classList.toggle('hidden')">
+                    <span><i class="fa fa-cog mr-2"></i>手动同步（加密同步码）</span>
+                    <i class="fa fa-chevron-down transition-transform"></i>
+                </button>
+                <div id="manualSyncBox" class="hidden mt-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold">1</div>
+                        <h3 class="font-semibold text-lg">设置同步密钥（仅需设置一次）</h3>
+                    </div>
+                    <div class="flex gap-3 mb-4">
+                        <input type="text" id="syncKeyInput" placeholder="请输入同步密钥，电脑手机需一致" class="flex-1">
+                        <button id="saveSyncKeyBtn" class="px-5 py-2 bg-primary text-white rounded-lg btn-glass btn-glow btn-glow-primary">保存</button>
+                    </div>
+                    <div class="flex items-center gap-2 mb-3">
+                        <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold">2</div>
+                        <h3 class="font-semibold text-lg">手动同步操作</h3>
+                    </div>
+                    <button id="copySyncCodeBtn" class="w-full py-3 bg-primary text-white rounded-xl font-medium mb-3 btn-glass btn-glow btn-glow-primary">
+                        <i class="fa fa-cloud-upload mr-2"></i>复制同步码
+                    </button>
+                    <div id="syncMsg" class="hidden mb-3 p-2 rounded-lg"></div>
+                    <textarea id="syncCodeInput" rows="3" placeholder="将另一端复制的同步码粘贴到这里" class="w-full mb-3 resize-none"></textarea>
+                    <button id="importSyncCodeBtn" class="w-full py-3 bg-success text-white rounded-lg btn-glass btn-glow">
+                        <i class="fa fa-cloud-download mr-2"></i>导入同步码
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-6 p-4 border border-gray-200 rounded-xl">
+                <button id="toggleBackupBtn" class="w-full flex justify-between items-center py-2 font-semibold">
+                    <span><i class="fa fa-database mr-2"></i>自动备份管理</span>
+                    <i class="fa fa-chevron-down transition-transform"></i>
+                </button>
+                <div id="backupContainer" class="hidden mt-4">
+                    <div class="flex gap-2 mb-4">
+                        <button id="backupNowBtn" class="flex-1 py-2 bg-info text-white rounded-lg btn-glass">
+                            <i class="fa fa-plus mr-1"></i>立即备份当前数据
+                        </button>
+                        <button id="exportBackupBtn" class="flex-1 py-2 bg-success text-white rounded-lg btn-glass">
+                            <i class="fa fa-download mr-1"></i>导出备份文件
+                        </button>
+                        <label class="flex-1 py-2 bg-warning text-white rounded-lg text-center cursor-pointer btn-glass">
+                            <i class="fa fa-upload mr-1"></i>导入备份
+                            <input type="file" id="importBackupInput" accept=".json" class="hidden">
+                        </label>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-3">自动保留最近15份备份，每天首次打开、数据修改后自动备份，数据损坏时可随时恢复</p>
+                    <div id="backupList" class="space-y-2 max-h-60 overflow-y-auto"></div>
+                </div>
+            </div>
+
+            <div class="p-4 border border-gray-200 rounded-xl">
+                <div class="flex items-center gap-2">
+                    <i class="fa fa-info-circle text-gray-400"></i>
+                    <p class="text-xs text-gray-500">同步时会自动合并两端数据，相同记录保留最新版本，不会覆盖丢失数据</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="fixed left-1/2 -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-[100] opacity-0 transition-opacity pointer-events-none" style="top: calc(80px + env(safe-area-inset-top, 0px));"></div>
+<script>
+'use strict';
+
+// ==================== IndexedDB 大容量存储 ====================
+const DB_NAME = 'CRM_SYSTEM_DB';
+const DB_VERSION = 3;
+const STORE_DATA = 'system_data';
+const STORE_BACKUPS = 'backups';
+const STORE_ACCOUNTS = 'accounts';
+let db = null;
+
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE_DATA)) {
+                db.createObjectStore(STORE_DATA, { keyPath: 'key' });
+            }
+            if (!db.objectStoreNames.contains(STORE_BACKUPS)) {
+                db.createObjectStore(STORE_BACKUPS, { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains(STORE_ACCOUNTS)) {
+                const accountStore = db.createObjectStore(STORE_ACCOUNTS, { keyPath: 'id' });
+                accountStore.createIndex('date', 'date');
+            }
+        };
+        request.onsuccess = (e) => {
+            db = e.target.result;
+            resolve(db);
+        };
+        request.onerror = (e) => reject(e.target.error);
+    });
+}
+
+function dbGet(key) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_DATA, 'readonly');
+        const store = tx.objectStore(STORE_DATA);
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result ? req.result.value : null);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function dbPut(key, value) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_DATA, 'readwrite');
+        const store = tx.objectStore(STORE_DATA);
+        store.put({ key, value });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+function dbAddBackup(backup) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_BACKUPS, 'readwrite');
+        const store = tx.objectStore(STORE_BACKUPS);
+        store.add(backup);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+function dbGetAllBackups() {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_BACKUPS, 'readonly');
+        const store = tx.objectStore(STORE_BACKUPS);
+        const req = store.getAll();
+        req.onsuccess = () => {
+            let backups = req.result || [];
+            backups.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+            resolve(backups);
+        };
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function dbGetAllAccounts() {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_ACCOUNTS, 'readonly');
+        const store = tx.objectStore(STORE_ACCOUNTS);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function dbDeleteBackup(id) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_BACKUPS, 'readwrite');
+        const store = tx.objectStore(STORE_BACKUPS);
+        store.delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+function dbClearOldBackups() {
+    return new Promise(async (resolve) => {
+        const backups = await dbGetAllBackups();
+        if (backups.length <= 15) return resolve();
+        const toDelete = backups.slice(15);
+        for (const b of toDelete) {
+            await dbDeleteBackup(b.id);
+        }
+        resolve();
+    });
+}
+
+// ==================== 自动备份功能 ====================
+async function createBackup(trigger = 'auto') {
+    try {
+        const backup = {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2,7),
+            createdAt: new Date().toISOString(),
+            trigger: trigger,
+            data: JSON.parse(JSON.stringify(data)),
+            size: JSON.stringify(data).length
+        };
+        await dbAddBackup(backup);
+        await dbClearOldBackups();
+        await renderBackupList();
+        return true;
+    } catch (e) {
+        console.error('备份失败', e);
+        return false;
+    }
+}
+
+async function restoreBackup(backupId) {
+    if (!confirm('确定要恢复此备份吗？恢复前会自动备份当前数据，可随时回退。')) return;
+    try {
+        await createBackup('before_restore');
+        const backups = await dbGetAllBackups();
+        const backup = backups.find(b => b.id === backupId);
+        if (!backup) return showToast('备份不存在');
+        data = JSON.parse(JSON.stringify(backup.data));
+        normalizeData();
+        migrateData();
+        await dbPut('crm_data', data);
+        showToast('恢复备份成功');
+        render();
+        closeModal();
+    } catch (e) {
+        showToast('恢复失败：' + e.message);
+    }
+}
+
+async function downloadBackup(backupId) {
+    const backups = await dbGetAllBackups();
+    const backup = backups.find(b => b.id === backupId);
+    if (!backup) return showToast('备份不存在');
+    const blob = new Blob([JSON.stringify(backup.data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `客户管理系统备份_${formatDate(backup.createdAt)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('备份文件已下载');
+}
+
+async function renderBackupList() {
+    const listEl = document.getElementById('backupList');
+    if (!listEl) return;
+    const backups = await dbGetAllBackups();
+    if (backups.length === 0) {
+        listEl.innerHTML = '<p class="text-gray-500 text-center py-4 text-sm">暂无备份</p>';
+        return;
+    }
+    listEl.innerHTML = backups.map(b => `
+        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div>
+                <p class="text-sm font-medium">${new Date(b.createdAt).toLocaleString('zh-CN')}</p>
+                <p class="text-xs text-gray-500">${(b.size/1024).toFixed(2)}KB · ${b.trigger === 'auto'?'自动备份':b.trigger === 'manual'?'手动备份':'恢复前备份'}</p>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="restoreBackup('${b.id}')" class="px-3 py-1 text-xs text-primary border border-primary rounded btn-glass">恢复</button>
+                <button onclick="downloadBackup('${b.id}')" class="px-3 py-1 text-xs text-success border border-success rounded btn-glass">下载</button>
+                <button onclick="deleteBackup('${b.id}')" class="px-3 py-1 text-xs text-red-600 border border-red-200 rounded btn-glass">删除</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function deleteBackup(backupId) {
+    if (!confirm('确定删除此备份吗？')) return;
+    await dbDeleteBackup(backupId);
+    await renderBackupList();
+    showToast('备份已删除');
+}
+
+let autoBackupTimer = null;
+function scheduleAutoBackup() {
+    if (autoBackupTimer) clearTimeout(autoBackupTimer);
+    autoBackupTimer = setTimeout(() => {
+        createBackup('auto');
+    }, 30000); // 数据变更后30秒自动备份
+}
+
+// ==================== 常量与全局变量 ====================
+const SYNC_KEY_STORAGE = 'crm_sync_key';
+let statusChart = null, feeChart = null;
+let data = { processing: [], completed: [], todo: [], accounts: [] };
+let currentTab = 'processing';
+let currentFilter = 'all', currentRenewFilter = 'all', currentSort = 'expireSoon';
+let currentAccountFilter = 'all';
+
+// ==================== 数据迁移与加载 ====================
+function migrateData() {
+    data.processing.forEach(p => {
+        if (p.doctorFee !== undefined && p.doctorFee !== null && p.doctorTotalFee === undefined) {
+            p.doctorTotalFee = Number(p.doctorFee) || 0;
+            p.doctorPaidFee = p.feeStatus === '已支付' ? p.doctorTotalFee : 0;
+            p.doctorBalance = p.doctorTotalFee - p.doctorPaidFee;
+        }
+        if (p.doctorTotalFee === undefined) p.doctorTotalFee = 0;
+        if (p.doctorPaidFee === undefined) p.doctorPaidFee = 0;
+        if (p.doctorBalance === undefined) p.doctorBalance = Number(p.doctorTotalFee) - Number(p.doctorPaidFee);
+        delete p.doctorFee;
+    });
+    data.completed.forEach(c => {
+        if (c.doctorFee !== undefined && c.doctorFee !== null && c.doctorTotalFee === undefined) {
+            c.doctorTotalFee = Number(c.doctorFee) || 0;
+            c.doctorPaidFee = c.feeStatus === '已支付' ? c.doctorTotalFee : 0;
+            c.doctorBalance = c.doctorTotalFee - c.doctorPaidFee;
+        }
+        if (c.doctorTotalFee === undefined) c.doctorTotalFee = 0;
+        if (c.doctorPaidFee === undefined) c.doctorPaidFee = 0;
+        if (c.doctorBalance === undefined) c.doctorBalance = Number(c.doctorTotalFee) - Number(c.doctorPaidFee);
+        delete c.doctorFee;
+    });
+}
+
+// 统一数据校验：保证四个数组字段存在，并消毒 id（仅允许字母数字，防注入内联事件）
+function normalizeData() {
+    ['processing', 'completed', 'todo', 'accounts'].forEach(k => {
+        if (!Array.isArray(data[k])) data[k] = [];
+    });
+    ['processing', 'completed', 'todo', 'accounts'].forEach(k => {
+        data[k].forEach(item => {
+            if (!item || typeof item !== 'object') return;
+            if (typeof item.id !== 'string' || !/^[A-Za-z0-9]+$/.test(item.id)) item.id = genId();
+        });
+    });
+}
+
+async function loadData() {
+    // 先从localStorage迁移旧数据
+    try {
+        const oldSaved = localStorage.getItem('crm_system_data_v2');
+        if (oldSaved) {
+            data = JSON.parse(oldSaved);
+            normalizeData();
+            await dbPut('crm_data', data);
+            localStorage.removeItem('crm_system_data_v2');
+            await createBackup('migration');
+            showToast('旧数据已迁移到新存储');
+        }
+    } catch (e) { console.error('旧数据迁移失败', e); }
+
+    // 从IndexedDB加载
+    try {
+        const saved = await dbGet('crm_data');
+        if (saved) data = saved;
+    } catch (e) {
+        console.error('数据加载失败', e);
+        showToast('数据加载失败，请检查存储权限');
+    }
+
+    normalizeData();
+
+    // 迁移旧accounts表中的记账数据到主数据，统一存储
+    try {
+        const accountsInStore = await dbGetAllAccounts();
+        if (accountsInStore.length > data.accounts.length) {
+            // 合并去重
+            const existingIds = new Set(data.accounts.map(a => a.id));
+            accountsInStore.forEach(a => {
+                if (!existingIds.has(a.id)) data.accounts.push(a);
+            });
+        }
+    } catch (e) { console.error('记账数据迁移失败', e); }
+
+    migrateData();
+
+    // 首次打开自动创建初始备份
+    const backups = await dbGetAllBackups();
+    if (backups.length === 0) {
+        await createBackup('initial');
+    }
+
+    // 检查每日备份
+    const lastBackupDate = localStorage.getItem('last_daily_backup_date');
+    const today = new Date().toDateString();
+    if (lastBackupDate !== today) {
+        await createBackup('daily');
+        localStorage.setItem('last_daily_backup_date', today);
+    }
+}
+
+async function saveData() {
+    const now = new Date().toISOString();
+    data.processing.forEach(p => { 
+        if(!p.updatedAt) p.updatedAt = now;
+        p.unit = String(p.unit||'').trim();
+        p.contact = String(p.contact||'').trim();
+        p.phone = String(p.phone||'').trim().slice(0,20);
+        p.doctor = String(p.doctor||'').trim();
+        p.requirements = String(p.requirements||'').trim();
+        p.remarks = String(p.remarks||'').trim();
+        p.totalFee = Number(p.totalFee) || 0;
+        p.deposit = Math.min(Number(p.deposit) || 0, p.totalFee);
+        p.balance = Math.max(0, p.totalFee - p.deposit);
+        p.doctorTotalFee = Number(p.doctorTotalFee) || 0;
+        p.doctorPaidFee = Math.min(Number(p.doctorPaidFee) || 0, p.doctorTotalFee);
+        p.doctorBalance = Math.max(0, calcDoctorBalance(p.doctorTotalFee, p.doctorPaidFee));
+    });
+    data.completed.forEach(c => { 
+        if(!c.updatedAt) c.updatedAt = c.completedAt || now;
+        c.unit = String(c.unit||'').trim();
+        c.contact = String(c.contact||'').trim();
+        c.phone = String(c.phone||'').trim().slice(0,20);
+        c.doctor = String(c.doctor||'').trim();
+        c.remarks = String(c.remarks||'').trim();
+        c.totalFee = Number(c.totalFee) || 0;
+        c.deposit = Math.min(Number(c.deposit) || 0, c.totalFee);
+        c.balance = Math.max(0, c.totalFee - c.deposit);
+        c.doctorTotalFee = Number(c.doctorTotalFee) || 0;
+        c.doctorPaidFee = Math.min(Number(c.doctorPaidFee) || 0, c.doctorTotalFee);
+        c.doctorBalance = Math.max(0, calcDoctorBalance(c.doctorTotalFee, c.doctorPaidFee));
+    });
+    data.accounts.forEach(a => {
+        a.unit = String(a.unit||'').trim();
+        a.remark = String(a.remark||'').trim();
+        a.amount = Number(a.amount) || 0;
+    });
+    data.todo.forEach(t => { 
+        if(!t.updatedAt) t.updatedAt = t.createdAt || now;
+        t.title = String(t.title||'').trim();
+    });
+    // 自动删除完成超过12小时的待办
+    data.todo = data.todo.filter(t => {
+        if (!t.done) return true;
+        if (!t.completedAt) t.completedAt = t.updatedAt;
+        return (new Date(now) - new Date(t.completedAt)) < 12 * 60 * 60 * 1000;
+    });
+    try {
+        await dbPut('crm_data', data);
+        scheduleAutoBackup(); // 数据变更后调度自动备份
+    } catch (e) { 
+        showToast('数据保存失败：存储空间不足，请备份后清理');
+        console.error(e);
+    }
+    render();
+}
+
+// ==================== XSS防护与工具函数 ====================
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.remove('opacity-0');
+    toast.classList.add('opacity-100');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => {
+        toast.classList.remove('opacity-100');
+        toast.classList.add('opacity-0');
+    }, 2500);
+}
+
+// 按本地时区解析日期字符串（YYYY-MM-DD），避免 UTC/本地时区差异导致日期偏移
+function parseDateStr(dateStr) {
+    if (!dateStr) return null;
+    const m = String(dateStr).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) {
+        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function addYear(dateStr) {
+    if (!dateStr) return '';
+    const d = parseDateStr(dateStr);
+    if (!d) return '';
+    d.setFullYear(d.getFullYear() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function calcDaysLeft(end) {
+    if (!end) return null;
+    const now = new Date(); now.setHours(0,0,0,0);
+    const e = parseDateStr(end);
+    if (!e) return null;
+    e.setHours(0,0,0,0);
+    return Math.round((e - now) / (1000*60*60*24));
+}
+
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function calcBalance(total, deposit) { const t = Number(total) || 0, d = Number(deposit) || 0; return Math.max(0, t - d); }
+function calcDoctorBalance(total, paid) { const t = Number(total) || 0, p = Number(paid) || 0; return Math.max(0, t - p); }
+function showModal(modal) {
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+    // 隐藏右下角+按钮，避免浮在弹窗上层被误触
+    const addBtn = document.getElementById('addBtn');
+    if (addBtn) addBtn.style.visibility = 'hidden';
+}
+function closeModal() {
+    document.querySelectorAll('.modal-overlay').forEach(m => { m.classList.add('hidden'); m.classList.remove('flex'); });
+    document.body.style.overflow = '';
+    const addBtn = document.getElementById('addBtn');
+    if (addBtn) addBtn.style.visibility = '';
+}
+
+// ==================== 每日随机背景 ====================
+function initDailyBackground() {
+    const today = new Date();
+    const seed = today.getFullYear() * 10000 + (today.getMonth()+1)*100 + today.getDate();
+    const bgId = (seed % 1000) + 100;
+    document.body.style.backgroundImage = `linear-gradient(rgba(255,255,255,0.3), rgba(255,255,255,0.35)), url('https://picsum.photos/id/${bgId}/1920/1080')`;
+}
+
+// ==================== 视口高度修复（移动端）====================
+function setVH() { document.documentElement.style.setProperty('--vh', `${window.innerHeight * 0.01}px`); }
+
+// ==================== 水波纹点击效果 ====================
+function initRippleEffect() {
+    document.addEventListener('click', (e) => {
+        // 卡片折叠展开
+        const cardHeader = e.target.closest('.card-header');
+        if (cardHeader && !e.target.closest('button, input, select, textarea, a')) {
+            const card = cardHeader.parentElement;
+            card.classList.toggle('card-expanded');
+            e.stopPropagation();
+            return;
+        }
+
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const ripple = document.createElement('span');
+        ripple.className = 'ripple';
+        const rect = btn.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height);
+        ripple.style.width = ripple.style.height = size + 'px';
+        ripple.style.left = (e.clientX - rect.left - size/2) + 'px';
+        ripple.style.top = (e.clientY - rect.top - size/2) + 'px';
+        btn.appendChild(ripple);
+        setTimeout(() => ripple.remove(), 600);
+    });
+
+    // 全局金额输入框自动过滤非数字，只能输入数字和一个小数点（最多两位小数）
+    // 使用捕获阶段：先过滤输入值，再触发表单自身的尾款自动计算，保证两者一致
+    document.addEventListener('input', (e) => {
+        const input = e.target;
+        if (input.tagName !== 'INPUT' || input.getAttribute('inputmode') !== 'decimal') return;
+        let val = input.value.replace(/[^\d.]/g, '');
+        const firstDot = val.indexOf('.');
+        if (firstDot !== -1) {
+            let intPart = val.slice(0, firstDot).replace(/\./g, '');
+            let decPart = val.slice(firstDot + 1).replace(/\./g, '').slice(0, 2);
+            val = intPart + (decPart !== '' ? '.' + decPart : '.');
+        } else {
+            val = val.replace(/\./g, '');
+        }
+        if (input.value !== val) input.value = val;
+    }, true);
+    // 双重保险：彻底禁止所有数字输入框滚轮修改数值，兼容所有浏览器
+    document.addEventListener('wheel', (e) => {
+        const input = e.target;
+        if (input.tagName === 'INPUT' && (input.type === 'number' || input.getAttribute('inputmode') === 'decimal')) {
+            if (document.activeElement === input) input.blur();
+            e.preventDefault();
+        }
+    }, { passive: false, capture: true });
+}
+
+// ==================== Tab切换 ====================
+function initTabs() {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.onclick = () => {
+            currentTab = btn.dataset.tab;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+            btn.classList.add('tab-active');
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            document.getElementById(currentTab + 'View').classList.remove('hidden');
+            renderFilters(); render();
+        };
+    });
+}
+
+function renderFilters() {
+    const container = document.getElementById('filterContainer');
+    container.innerHTML = '';
+    const searchEl = document.getElementById('searchInput');
+    const accountSearchEl = document.getElementById('accountSearchInput');
+    const accountFilterEl = document.getElementById('accountFilter');
+    
+    if (currentTab === 'account') {
+        searchEl.parentElement.classList.add('hidden');
+        accountSearchEl.parentElement.classList.remove('hidden');
+        accountFilterEl.classList.remove('hidden');
+    } else {
+        searchEl.parentElement.classList.remove('hidden');
+        accountSearchEl.parentElement.classList.add('hidden');
+        accountFilterEl.classList.add('hidden');
+    }
+    if (currentTab === 'todo') {
+        const select = document.createElement('select');
+        select.innerHTML = `<option value="all">全部状态</option><option value="pending">待完成</option><option value="done">已完成</option>`;
+        select.value = currentFilter;
+        select.onchange = () => { currentFilter = select.value; render(); };
+        container.appendChild(select);
+    }
+    if (currentTab === 'completed') {
+        const renewSelect = document.createElement('select');
+        renewSelect.innerHTML = `
+            <option value="all" ${currentRenewFilter==='all'?'selected':''}>全部续约状态</option>
+            <option value="yes" ${currentRenewFilter==='yes'?'selected':''}>已续约</option>
+            <option value="no" ${currentRenewFilter==='no'?'selected':''}>不续约</option>
+            <option value="pending" ${currentRenewFilter==='pending'?'selected':''}>待确认</option>
+        `;
+        renewSelect.onchange = () => { currentRenewFilter = renewSelect.value; render(); };
+        container.appendChild(renewSelect);
+
+        const sortSelect = document.createElement('select');
+        sortSelect.innerHTML = `
+            <option value="expireSoon" ${currentSort==='expireSoon'?'selected':''}>到期最近优先</option>
+            <option value="expireFar" ${currentSort==='expireFar'?'selected':''}>到期最远优先</option>
+            <option value="overdueFirst" ${currentSort==='overdueFirst'?'selected':''}>已过期优先</option>
+            <option value="newest" ${currentSort==='newest'?'selected':''}>最新完结优先</option>
+        `;
+        sortSelect.onchange = () => { currentSort = sortSelect.value; render(); };
+        container.appendChild(sortSelect);
+    }
+}
+// ==================== 全局提醒 ====================
+function updateAlerts() {
+    const banner = document.getElementById('alertBanner');
+    const content = document.getElementById('alertContent');
+    const alerts = [];
+    const overdueProcessing = data.processing.filter(p => { const d = calcDaysLeft(p.endDate); return d !== null && d < 0; }).length;
+    const soonProcessing = data.processing.filter(p => { const d = calcDaysLeft(p.endDate); return d !== null && d >=0 && d <=30; }).length;
+    const unpaid = [...data.processing, ...data.completed].filter(c => Number(c.balance) > 0).length;
+    const unpaidAmount = [...data.processing, ...data.completed].reduce((sum,c) => sum + (Number(c.balance)||0), 0);
+    const overdueTodo = data.todo.filter(t => { const dl = t.deadline && !t.done ? parseDateStr(t.deadline) : null; return dl && dl < new Date(); }).length;
+    const noRenew = data.completed.filter(c => c.renew === 'no').length;
+
+    if (unpaid > 0) alerts.push(`<strong>待收尾款${unpaid}家，共¥${unpaidAmount.toLocaleString()}</strong>`);
+    if (overdueProcessing > 0) alerts.push(`办理中已过期${overdueProcessing}家`);
+    if (soonProcessing > 0) alerts.push(`即将到期（30天内）${soonProcessing}家`);
+    if (overdueTodo > 0) alerts.push(`待办已过期${overdueTodo}项`);
+    if (noRenew > 0) alerts.push(`不续约客户${noRenew}家`);
+
+    if (alerts.length > 0) { banner.classList.remove('hidden'); content.innerHTML = alerts.join('，'); }
+    else { banner.classList.add('hidden'); }
+}
+
+// ==================== 渲染办理中客户 ====================
+function renderProcessing() {
+    const list = document.getElementById('processingList');
+    const empty = document.getElementById('processingEmpty');
+    const keyword = document.getElementById('searchInput').value.toLowerCase().trim();
+    
+    let items = data.processing.filter(item => {
+        if (!keyword) return true;
+        return (item.unit||'').toLowerCase().includes(keyword) 
+            || (item.contact||'').toLowerCase().includes(keyword)
+            || (item.phone||'').toLowerCase().includes(keyword)
+            || (item.doctor||'').toLowerCase().includes(keyword)
+            || (item.requirements||'').toLowerCase().includes(keyword);
+    });
+    
+    items.sort((a,b) => {
+        const aUnpaid = Number(a.balance) > 0 ? 1 : 0;
+        const bUnpaid = Number(b.balance) > 0 ? 1 : 0;
+        if (aUnpaid !== bUnpaid) return bUnpaid - aUnpaid;
+        const aDays = calcDaysLeft(a.endDate) ?? 9999;
+        const bDays = calcDaysLeft(b.endDate) ?? 9999;
+        return aDays - bDays;
+    });
+
+    document.getElementById('processingCount').textContent = data.processing.length;
+    list.innerHTML = '';
+    
+    if (items.length === 0) { empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+
+    items.forEach(item => {
+        const daysLeft = calcDaysLeft(item.endDate);
+        const balance = Number(item.balance) || 0;
+        const doctorTotal = Number(item.doctorTotalFee) || 0;
+        const doctorPaid = Number(item.doctorPaidFee) || 0;
+        const doctorBalance = Number(item.doctorBalance) || calcDoctorBalance(doctorTotal, doctorPaid);
+        const doctorUnpaid = doctorBalance > 0;
+        const isAlert = balance > 0 || (daysLeft !== null && daysLeft <= 30);
+        
+        const card = document.createElement('div');
+        card.className = `rounded-xl p-4 card-shadow ${isAlert ? 'border-2 border-red-300 bg-red-50/30' : ''}`;
+        
+        let statusBadge = '';
+        if (daysLeft !== null && daysLeft < 0) statusBadge = `<span class="badge-red px-2 py-1 rounded-md text-xs font-medium">已过期${Math.abs(daysLeft)}天</span>`;
+        else if (daysLeft !== null && daysLeft <= 30) statusBadge = `<span class="badge-red px-2 py-1 rounded-md text-xs font-medium animate-pulse-red">剩余${daysLeft}天</span>`;
+        else statusBadge = `<span class="badge-blue px-2 py-1 rounded-md text-xs font-medium">办理中</span>`;
+
+        card.innerHTML = `
+            <div class="card-header flex justify-between items-start">
+                <div>
+                    <h3 class="font-bold text-lg text-gray-800">${escapeHtml(item.unit||'未填写')}</h3>
+                    <p class="text-sm text-gray-500 mt-1">
+                        ${item.doctor ? `医生: ${escapeHtml(item.doctor)} · ` : ''}${escapeHtml(item.contact||'')} ${item.phone?`· ${escapeHtml(item.phone)}`:''}
+                    </p>
+                    ${item.partner ? `<p class="text-xs text-gray-500 mt-0.5">🤝 ${escapeHtml(item.partner)}</p>` : ''}
+                </div>
+                <div class="flex items-start gap-2">
+                    ${statusBadge}
+                    <i class="fa fa-chevron-down card-expand-arrow mt-1"></i>
+                </div>
+            </div>
+            <div class="card-collapse-content">
+                <div class="space-y-2 text-sm mt-3 pt-3 border-t border-gray-100">
+                    <div class="flex justify-between"><span class="text-gray-500">总费用</span><span class="font-medium">¥${Number(item.totalFee||0).toLocaleString()}</span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">已付定金</span><span class="text-green-600">¥${Number(item.deposit||0).toLocaleString()}</span></div>
+                    ${balance > 0 ? `
+                    <div class="flex justify-between items-center p-2 bg-red-50 rounded-lg border border-red-200">
+                        <span class="text-red-600 font-medium flex items-center gap-1"><i class="fa fa-exclamation-circle"></i> 待支付尾款</span>
+                        <span class="text-red-600 font-bold text-lg">¥${balance.toLocaleString()}</span>
+                    </div>` : `
+                    <div class="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-200">
+                        <span class="text-green-600 flex items-center gap-1"><i class="fa fa-check-circle"></i> 尾款已结清</span>
+                    </div>`}
+                    ${doctorTotal > 0 ? (doctorUnpaid ? `
+                    <div class="flex justify-between items-center p-2 bg-red-50 rounded-lg border border-red-200">
+                        <span class="text-red-600 font-medium flex items-center gap-1"><i class="fa fa-exclamation-circle"></i> 医师费用待付</span>
+                        <span class="text-red-600 font-bold text-lg">¥${doctorBalance.toLocaleString()}</span>
+                    </div>` : `
+                    <div class="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-200">
+                        <span class="text-green-600 flex items-center gap-1"><i class="fa fa-check-circle"></i> 医师费用已结清</span>
+                    </div>`) : ''}
+                    <div class="py-2">
+                        <span class="text-xs text-gray-500 block mb-1">📋 所需证件条件</span>
+                        <span class="text-sm text-gray-700">${escapeHtml(item.requirements||'无')}</span>
+                    </div>
+                    ${item.startDate && item.endDate ? `<div class="text-xs text-gray-400">${formatDate(item.startDate)} 至 ${formatDate(item.endDate)}</div>` : ''}
+                </div>
+                <div class="flex gap-2 mt-4 pt-3 border-t border-gray-100">
+                    <button onclick="viewProcessing('${item.id}')" class="flex-1 py-2 text-sm text-primary border border-primary rounded-lg transition btn-glass">查看</button>
+                    <button onclick="editProcessing('${item.id}')" class="flex-1 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg transition btn-glass">编辑</button>
+                    <button onclick="moveToDone('${item.id}')" class="flex-1 py-2 text-sm text-white bg-success rounded-lg transition btn-glass btn-glow">标记完结</button>
+                </div>
+            </div>
+        `;
+        list.appendChild(card);
+    });
+}
+
+// ==================== 渲染已完结客户（正确唯一版本）====================
+function renderCompleted() {
+    const list = document.getElementById('completedList');
+    const empty = document.getElementById('completedEmpty');
+    const keyword = document.getElementById('searchInput').value.toLowerCase().trim();
+    
+    let items = data.completed.filter(item => {
+        if (!keyword) return true;
+        return (item.unit||'').toLowerCase().includes(keyword) 
+            || (item.contact||'').toLowerCase().includes(keyword)
+            || (item.phone||'').toLowerCase().includes(keyword)
+            || (item.doctor||'').toLowerCase().includes(keyword)
+            || (item.partner||'').toLowerCase().includes(keyword)
+            || (item.remarks||'').toLowerCase().includes(keyword);
+    });
+
+    if (currentRenewFilter !== 'all') items = items.filter(i => (i.renew||'pending') === currentRenewFilter);
+
+    items.sort((a,b) => {
+        const aRenew = (a.renew === 'no') ? 1 : 0;
+        const bRenew = (b.renew === 'no') ? 1 : 0;
+        if (aRenew !== bRenew) return bRenew - aRenew;
+        const aUnpaid = Number(a.balance) > 0 ? 1 : 0;
+        const bUnpaid = Number(b.balance) > 0 ? 1 : 0;
+        if (aUnpaid !== bUnpaid) return bUnpaid - aUnpaid;
+        const aDays = calcDaysLeft(a.endDate);
+        const bDays = calcDaysLeft(b.endDate);
+        switch(currentSort) {
+            case 'expireSoon': return (aDays ?? 9999) - (bDays ?? 9999);
+            case 'expireFar': return (bDays ?? -9999) - (aDays ?? -9999);
+            case 'overdueFirst':
+                const aOverdue = (aDays !== null && aDays < 0) ? 1 : 0;
+                const bOverdue = (bDays !== null && bDays < 0) ? 1 : 0;
+                if (aOverdue !== bOverdue) return bOverdue - aOverdue;
+                return (aDays ?? 9999) - (bDays ?? 9999);
+            case 'newest': return new Date(b.completedAt||b.updatedAt||0) - new Date(a.completedAt||a.updatedAt||0);
+            default: return (aDays ?? 9999) - (bDays ?? 9999);
+        }
+    });
+
+    document.getElementById('completedCount').textContent = data.completed.length;
+    list.innerHTML = '';
+    
+    if (items.length === 0) { empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+
+    items.forEach(item => {
+        const daysLeft = calcDaysLeft(item.endDate);
+        const balance = Number(item.balance) || 0;
+        const doctorTotal = Number(item.doctorTotalFee) || 0;
+        const doctorPaid = Number(item.doctorPaidFee) || 0;
+        const doctorBalance = Number(item.doctorBalance) || calcDoctorBalance(doctorTotal, doctorPaid);
+        const doctorUnpaid = doctorBalance > 0;
+        const noRenew = item.renew === 'no';
+        const isAlert = balance > 0 || (daysLeft !== null && daysLeft <= 30) || noRenew;
+        
+        const card = document.createElement('div');
+        card.className = `rounded-xl p-4 card-shadow ${isAlert ? 'border-2 border-red-300 bg-red-50/30' : 'border border-white/40'}`;
+        
+        let badges = '';
+        if (noRenew) badges += `<span class="badge-red px-2 py-1 rounded-md text-xs font-medium animate-pulse-red">⚠️ 不续约</span> `;
+        if (balance > 0) badges += `<span class="badge-red px-2 py-1 rounded-md text-xs font-medium">待收尾款¥${balance.toLocaleString()}</span> `;
+        if (daysLeft !== null) {
+            if (daysLeft < 0) badges += `<span class="badge-red px-2 py-1 rounded-md text-xs font-medium">已过期${Math.abs(daysLeft)}天</span> `;
+            else if (daysLeft <= 30) badges += `<span class="badge-yellow px-2 py-1 rounded-md text-xs font-medium">剩余${daysLeft}天</span> `;
+            else if (item.renew === 'yes') badges += `<span class="badge-green px-2 py-1 rounded-md text-xs font-medium">已续约</span> `;
+            else badges += `<span class="badge-blue px-2 py-1 rounded-md text-xs font-medium">已完结</span>`;
+        }
+        if (!badges) badges = `<span class="badge-green px-2 py-1 rounded-md text-xs font-medium">已完结</span>`;
+
+        card.innerHTML = `
+            <div class="card-header flex justify-between items-start">
+                <div>
+                    <h3 class="font-bold text-lg text-gray-800">${escapeHtml(item.unit||'未填写')}</h3>
+                    <p class="text-sm text-gray-500 mt-1">
+                        ${item.doctor ? `医生: ${escapeHtml(item.doctor)} · ` : ''}${escapeHtml(item.contact||'')} ${item.phone?`· ${escapeHtml(item.phone)}`:''}
+                    </p>
+                    ${item.partner ? `<p class="text-xs text-gray-500 mt-0.5">🤝 ${escapeHtml(item.partner)}</p>` : ''}
+                </div>
+                <div class="flex items-start gap-2">
+                    <div class="flex gap-1 flex-wrap justify-end">${badges}</div>
+                    <i class="fa fa-chevron-down card-expand-arrow mt-1"></i>
+                </div>
+            </div>
+            <div class="card-collapse-content">
+                <div class="space-y-2 text-sm mt-3 pt-3 border-t border-gray-100">
+                    <div class="flex justify-between"><span class="text-gray-500">总费用</span><span class="font-medium">¥${Number(item.totalFee||0).toLocaleString()}</span></div>
+                    <div class="flex justify-between"><span class="text-gray-500">已收款项</span><span class="text-green-600">¥${Number((item.totalFee||0) - (item.balance||0)).toLocaleString()}</span></div>
+                    ${balance > 0 ? `
+                    <div class="flex justify-between items-center p-2 bg-red-50 rounded-lg border border-red-200">
+                        <span class="text-red-600 font-medium flex items-center gap-1"><i class="fa fa-exclamation-circle"></i> 待支付尾款</span>
+                        <span class="text-red-600 font-bold text-lg">¥${balance.toLocaleString()}</span>
+                    </div>` : `
+                    <div class="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-200">
+                        <span class="text-green-600 flex items-center gap-1"><i class="fa fa-check-circle"></i> 尾款已结清</span>
+                    </div>`}
+                    ${doctorTotal > 0 ? (doctorUnpaid ? `
+                    <div class="flex justify-between items-center p-2 bg-red-50 rounded-lg border border-red-200">
+                        <span class="text-red-600 font-medium flex items-center gap-1"><i class="fa fa-exclamation-circle"></i> 医师费用待付</span>
+                        <span class="text-red-600 font-bold text-lg">¥${doctorBalance.toLocaleString()}</span>
+                    </div>` : `
+                    <div class="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-200">
+                        <span class="text-green-600 flex items-center gap-1"><i class="fa fa-check-circle"></i> 医师费用已结清</span>
+                    </div>`) : ''}
+                    ${item.remarks ? `
+                    <div class="py-2">
+                        <span class="text-xs text-gray-500 block mb-1">📝 备注</span>
+                        <span class="text-sm text-gray-700 line-clamp-2">${escapeHtml(item.remarks)}</span>
+                    </div>` : ''}
+                    <div class="flex justify-between">
+                        <span class="text-gray-500">剩余天数</span>
+                        <span class="${daysLeft<0?'text-red-600':daysLeft<=30?'text-yellow-600':'text-gray-600'} font-medium">
+                            ${daysLeft === null ? '未设置' : daysLeft < 0 ? `已过期${Math.abs(daysLeft)}天` : daysLeft === 0 ? '今天到期' : `剩余${daysLeft}天`}
+                        </span>
+                    </div>
+                    ${item.startDate && item.endDate ? `<div class="text-xs text-gray-400">${formatDate(item.startDate)} 至 ${formatDate(item.endDate)}</div>` : ''}
+                </div>
+                <div class="flex gap-2 mt-4 pt-3 border-t border-gray-100">
+                    <button onclick="viewCompleted('${item.id}')" class="flex-1 py-2 text-sm text-primary border border-primary rounded-lg transition btn-glass">查看</button>
+                    <button onclick="editCompleted('${item.id}')" class="flex-1 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg transition btn-glass">编辑</button>
+                    <button onclick="deleteCompleted('${item.id}')" class="flex-1 py-2 text-sm text-red-600 border border-red-200 rounded-lg transition btn-glass btn-glow-red">删除</button>
+                </div>
+            </div>
+        `;
+        list.appendChild(card);
+    });
+}
+function renderTodo() {
+    const list = document.getElementById('todoList');
+    const empty = document.getElementById('todoEmpty');
+    const keyword = document.getElementById('searchInput').value.toLowerCase().trim();
+    
+    let items = data.todo.filter(item => {
+        if (currentFilter === 'pending' && item.done) return false;
+        if (currentFilter === 'done' && !item.done) return false;
+        if (!keyword) return true;
+        return (item.content||'').toLowerCase().includes(keyword);
+    });
+
+    items.sort((a,b) => {
+        if (a.top && !b.top) return -1;
+        if (!a.top && b.top) return 1;
+        if (a.done && !b.done) return 1;
+        if (!a.done && b.done) return -1;
+        return new Date(b.createdAt||0) - new Date(a.createdAt||0);
+    });
+
+    document.getElementById('todoCount').textContent = data.todo.filter(t => !t.done).length;
+    list.innerHTML = '';
+    
+    if (items.length === 0) { empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+
+    items.forEach(item => {
+        const daysLeft = item.deadline ? calcDaysLeft(item.deadline) : null;
+        const isOverdue = daysLeft !== null && daysLeft < 0 && !item.done;
+        const isSoon = daysLeft !== null && daysLeft >=0 && daysLeft <=3 && !item.done;
+        const el = document.createElement('div');
+        el.className = `p-4 rounded-xl card-shadow ${item.done ? 'bg-gray-50 opacity-70' : ''} ${isOverdue ? 'border-2 border-red-300' : ''} ${item.top ? 'border-l-4 border-primary' : ''}`;
+        el.innerHTML = `
+            <div class="flex items-start gap-3">
+                <input type="checkbox" ${item.done?'checked':''} onchange="toggleTodoDone('${item.id}')" class="mt-1 w-5 h-5 rounded text-primary focus:ring-primary">
+                <div class="flex-1 min-w-0">
+                    <p class="${item.done?'line-through text-gray-500':'text-gray-800'} font-medium">${escapeHtml(item.content)}</p>
+                    <div class="flex flex-wrap gap-2 mt-2 text-xs">
+                        ${item.priority === 'high' ? '<span class="badge-red px-2 py-0.5 rounded">高优先级</span>' : item.priority === 'low' ? '<span class="badge-blue px-2 py-0.5 rounded">低优先级</span>' : '<span class="badge-yellow px-2 py-0.5 rounded">中优先级</span>'}
+                        ${item.deadline ? `<span class="${isOverdue?'text-red-600 font-medium':isSoon?'text-yellow-600':'text-gray-500'}"><i class="fa fa-calendar mr-1"></i>${formatDate(item.deadline)} ${isOverdue?`(已过期${Math.abs(daysLeft)}天)`:isSoon?`(剩${daysLeft}天)`:''}</span>` : ''}
+                        ${item.top ? '<span class="text-primary"><i class="fa fa-thumb-tack mr-1"></i>置顶</span>' : ''}
+                    </div>
+                </div>
+                <div class="flex gap-1 shrink-0">
+                    <button onclick="toggleTodoTop('${item.id}')" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-primary btn-glass" title="置顶"><i class="fa fa-thumb-tack"></i></button>
+                    <button onclick="deleteTodo('${item.id}')" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-red-500 btn-glass" title="删除"><i class="fa fa-trash"></i></button>
+                </div>
+            </div>
+        `;
+        list.appendChild(el);
+    });
+}
+
+function render() {
+    renderProcessing();
+    renderCompleted();
+    renderTodo();
+    if (currentTab === 'account') renderAccount();
+    updateAlerts();
+    updateStats();
+    // 更新Tab计数
+    document.getElementById('processingCount').textContent = data.processing.length;
+    document.getElementById('completedCount').textContent = data.completed.length;
+    document.getElementById('todoCount').textContent = data.todo.filter(t => !t.done).length;
+}
+
+// ==================== 客户操作函数 ====================
+async function deleteProcessing(id) {
+    if (!confirm('确定删除该客户吗？删除后不可恢复（可从自动备份恢复）。')) return;
+    data.processing = data.processing.filter(p => p.id !== id);
+    await saveData();
+    showToast('已删除');
+}
+// ==================== 新增/编辑办理中客户表单 ====================
+function openProcessingForm(existId = null) {
+    const item = existId ? data.processing.find(p => p.id === existId) : {
+        id: genId(), unit: '', contact: '', phone: '', requirements: '', remarks: '',
+        totalFee: '', deposit: '', balance: '', partner: '', 
+        doctorTotalFee: '', doctorPaidFee: '', doctorBalance: '',
+        doctor: '', startDate: formatDate(new Date()), endDate: addYear(formatDate(new Date()))
+    };
+    if (!item.startDate) item.startDate = formatDate(new Date());
+    if (!item.endDate) item.endDate = addYear(item.startDate);
+
+    const html = `
+    <div class="modal-inner-container p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold">${existId?'编辑办理中客户':'新增办理中客户'}</h2>
+            <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
+        </div>
+        <form id="processingForm" class="space-y-4">
+            <input type="hidden" name="id" value="${item.id}">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">合作单位名称 *</label>
+                <input type="text" name="unit" required value="${escapeHtml(item.unit||'')}" placeholder="请输入单位名称" class="w-full">
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">联系人</label>
+                    <input type="text" name="contact" value="${escapeHtml(item.contact||'')}" placeholder="联系人姓名" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">联系电话</label>
+                    <input type="tel" name="phone" value="${escapeHtml(item.phone||'')}" placeholder="联系电话" class="w-full" maxlength="20">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">所需证件、条件要求</label>
+                <textarea name="requirements" rows="2" placeholder="请输入所需证件及条件要求" class="w-full resize-none">${escapeHtml(item.requirements||'')}</textarea>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">合作总费用（元）</label>
+                    <input type="text" inputmode="decimal" name="totalFee" id="totalFeeInput" value="${item.totalFee||''}" placeholder="总费用" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">已支付定金（元）</label>
+                    <input type="text" inputmode="decimal" name="deposit" id="depositInput" value="${item.deposit||''}" placeholder="定金" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">待支付尾款（元）</label>
+                    <input type="text" inputmode="decimal" name="balance" id="balanceInput" value="${item.balance||''}" placeholder="尾款自动计算" class="w-full bg-gray-50" readonly>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">合作对象</label>
+                <input type="text" name="partner" value="${escapeHtml(item.partner||'')}" placeholder="合作对象" class="w-full">
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">医师合作总费用（元）</label>
+                    <input type="text" inputmode="decimal" name="doctorTotalFee" id="doctorTotalInput" value="${item.doctorTotalFee||''}" placeholder="总费用" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">医师费用已支付（元）</label>
+                    <input type="text" inputmode="decimal" name="doctorPaidFee" id="doctorPaidInput" value="${item.doctorPaidFee||0}" placeholder="已支付金额" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">医师费用尾款（元）</label>
+                    <input type="text" inputmode="decimal" name="doctorBalance" id="doctorBalanceInput" value="${item.doctorBalance||''}" placeholder="尾款自动计算" class="w-full bg-gray-50" readonly>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">合作医生姓名</label>
+                <input type="text" name="doctor" value="${escapeHtml(item.doctor||'')}" placeholder="合作医生姓名" class="w-full">
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">合作起始时间</label>
+                    <input type="date" name="startDate" id="startDateInput" value="${item.startDate||formatDate(new Date())}" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">合作结束时间</label>
+                    <input type="date" name="endDate" id="endDateInput" value="${item.endDate||addYear(item.startDate||new Date())}" class="w-full">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+                <textarea name="remarks" rows="2" placeholder="请输入备注信息" class="w-full resize-none">${escapeHtml(item.remarks||'')}</textarea>
+            </div>
+            <div class="flex gap-3 pt-4">
+                <button type="button" onclick="closeModal()" class="flex-1 py-3 border border-gray-200 rounded-lg text-gray-600 btn-glass">取消</button>
+                <button type="submit" class="flex-1 py-3 bg-primary text-white rounded-lg btn-glass btn-glow btn-glow-primary">保存</button>
+            </div>
+        </form>
+    </div>
+    `;
+    document.getElementById('modalContent').innerHTML = html;
+    showModal(document.getElementById('modalContainer'));
+
+    // 自动计算尾款
+    const totalInput = document.getElementById('totalFeeInput');
+    const depositInput = document.getElementById('depositInput');
+    const balanceInput = document.getElementById('balanceInput');
+    const doctorTotalInput = document.getElementById('doctorTotalInput');
+    const doctorPaidInput = document.getElementById('doctorPaidInput');
+    const doctorBalanceInput = document.getElementById('doctorBalanceInput');
+    const startDateInput = document.getElementById('startDateInput');
+    const endDateInput = document.getElementById('endDateInput');
+
+    function calcBal() {
+        balanceInput.value = calcBalance(totalInput.value, depositInput.value);
+        doctorBalanceInput.value = calcDoctorBalance(doctorTotalInput.value, doctorPaidInput.value);
+    }
+    totalInput.addEventListener('input', calcBal);
+    depositInput.addEventListener('input', calcBal);
+    doctorTotalInput.addEventListener('input', calcBal);
+    doctorPaidInput.addEventListener('input', calcBal);
+
+    // 起始日期变化自动设置结束日期为一年后
+    startDateInput.addEventListener('change', () => {
+        if (!endDateInput.value || endDateInput.value === addYear(startDateInput.defaultValue)) {
+            endDateInput.value = addYear(startDateInput.value);
+        }
+    });
+
+    // 表单提交
+    document.getElementById('processingForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const newItem = {
+            id: formData.get('id'),
+            unit: formData.get('unit').trim(),
+            contact: formData.get('contact').trim(),
+            phone: formData.get('phone').trim(),
+            requirements: formData.get('requirements').trim(),
+            totalFee: Number(formData.get('totalFee')) || 0,
+            deposit: Number(formData.get('deposit')) || 0,
+            balance: Number(formData.get('balance')) || 0,
+            partner: formData.get('partner').trim(),
+            doctorTotalFee: Number(formData.get('doctorTotalFee')) || 0,
+            doctorPaidFee: Number(formData.get('doctorPaidFee')) || 0,
+            doctorBalance: Number(formData.get('doctorBalance')) || 0,
+            doctor: formData.get('doctor').trim(),
+            startDate: formData.get('startDate'),
+            endDate: formData.get('endDate'),
+            remarks: formData.get('remarks').trim(),
+            updatedAt: new Date().toISOString()
+        };
+        const idx = data.processing.findIndex(p => p.id === newItem.id);
+        if (idx >= 0) { newItem.createdAt = data.processing[idx].createdAt; data.processing[idx] = newItem; }
+        else { newItem.createdAt = new Date().toISOString(); data.processing.push(newItem); }
+        await saveData();
+        showToast(existId ? '修改成功' : '新增成功');
+        closeModal();
+    });
+}
+
+function editProcessing(id) { openProcessingForm(id); }
+function viewProcessing(id) {
+    const item = data.processing.find(p => p.id === id);
+    if (!item) return;
+    const daysLeft = calcDaysLeft(item.endDate);
+    const balance = Number(item.balance) || 0;
+    const doctorBalance = Number(item.doctorBalance) || 0;
+    const html = `
+    <div class="modal-inner-container p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold">客户详情</h2>
+            <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="space-y-4">
+            <div class="flex justify-between items-start">
+                <h3 class="text-2xl font-bold text-gray-800">${escapeHtml(item.unit)}</h3>
+                <span class="badge-blue px-3 py-1 rounded-lg text-sm">办理中</span>
+            </div>
+            <div class="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
+                <div><p class="text-sm text-gray-500">联系人</p><p class="font-medium">${escapeHtml(item.contact||'-')}</p></div>
+                <div><p class="text-sm text-gray-500">联系电话</p><p class="font-medium">${escapeHtml(item.phone||'-')}</p></div>
+                <div><p class="text-sm text-gray-500">合作医生</p><p class="font-medium">${escapeHtml(item.doctor||'-')}</p></div>
+                <div><p class="text-sm text-gray-500">合作对象</p><p class="font-medium">${escapeHtml(item.partner||'-')}</p></div>
+                <div><p class="text-sm text-gray-500">剩余天数</p><p class="font-medium ${daysLeft<0?'text-red-600':daysLeft<=30?'text-yellow-600':''}">${daysLeft === null ? '未设置' : daysLeft < 0 ? `已过期${Math.abs(daysLeft)}天` : `剩余${daysLeft}天`}</p></div>
+            </div>
+            <div class="p-4 bg-gray-50 rounded-xl">
+                <p class="text-sm text-gray-500 mb-1">📋 所需证件及条件</p>
+                <p class="text-gray-800">${escapeHtml(item.requirements||'无')}</p>
+            </div>
+            <div class="p-4 bg-gray-50 rounded-xl space-y-2">
+                <p class="font-semibold text-gray-700 mb-2">费用信息</p>
+                <div class="flex justify-between"><span class="text-gray-500">合作总费用</span><span class="font-medium">¥${(item.totalFee||0).toLocaleString()}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">已付定金</span><span class="text-green-600">¥${(item.deposit||0).toLocaleString()}</span></div>
+                ${balance > 0 ? `<div class="flex justify-between items-center p-2 bg-red-50 rounded border border-red-200"><span class="text-red-600"><i class="fa fa-exclamation-circle"></i> 待支付尾款</span><span class="text-red-600 font-bold">¥${balance.toLocaleString()}</span></div>` : `<div class="flex justify-between items-center p-2 bg-green-50 rounded border border-green-200"><span class="text-green-600"><i class="fa fa-check-circle"></i> 尾款已结清</span></div>`}
+                <div class="flex justify-between"><span class="text-gray-500">医师合作总费用</span><span class="font-medium">¥${(item.doctorTotalFee||0).toLocaleString()}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">医师费用已支付</span><span class="text-green-600">¥${(item.doctorPaidFee||0).toLocaleString()}</span></div>
+                ${doctorBalance > 0 ? `<div class="flex justify-between items-center p-2 bg-red-50 rounded border border-red-200"><span class="text-red-600"><i class="fa fa-exclamation-circle"></i> 医师费用待付</span><span class="text-red-600 font-bold">¥${doctorBalance.toLocaleString()}</span></div>` : (item.doctorTotalFee > 0 ? `<div class="flex justify-between items-center p-2 bg-green-50 rounded border border-green-200"><span class="text-green-600"><i class="fa fa-check-circle"></i> 医师费用已结清</span></div>` : '')}
+            </div>
+            <div class="p-4 bg-gray-50 rounded-xl">
+                <p class="text-sm text-gray-500 mb-1">合作时间</p>
+                <p class="font-medium">${formatDate(item.startDate)} 至 ${formatDate(item.endDate)}</p>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeModal(); editProcessing('${item.id}')" class="flex-1 py-3 border border-primary text-primary rounded-lg btn-glass">编辑</button>
+                <button onclick="moveToDone('${item.id}')" class="flex-1 py-3 bg-success text-white rounded-lg btn-glass btn-glow">标记完结</button>
+            </div>
+        </div>
+    </div>
+    `;
+    document.getElementById('modalContent').innerHTML = html;
+    showModal(document.getElementById('modalContainer'));
+}
+
+async function moveToDone(id) {
+    const item = data.processing.find(p => p.id === id);
+    if (!item) return;
+    if (!confirm('确定标记该客户为已完结吗？将自动结清总费用尾款。')) return;
+    // ✅ 强制结清总费用尾款：已收款=总费用，尾款=0
+    const totalFee = Number(item.totalFee) || 0;
+    item.deposit = totalFee;
+    item.balance = 0;
+    item.completedAt = new Date().toISOString();
+    item.updatedAt = new Date().toISOString();
+    item.renew = 'pending';
+    // ✅ 自动补全结束日期：如果结束日期为空，自动设为今天；起始日期为空补为一年前
+    if (!item.endDate) item.endDate = formatDate(new Date());
+    if (!item.startDate) item.startDate = formatDate(new Date(new Date().getTime() - 365*24*60*60*1000));
+    // 证件条件+合作对象自动追加到备注
+    let remarkParts = [];
+    if (item.requirements) remarkParts.push('📋 所需证件条件：' + item.requirements);
+    if (remarkParts.length > 0) {
+        item.remarks = remarkParts.join('\n') + (item.remarks ? '\n' + item.remarks : '');
+    }
+    // 计算医师费用尾款保持不变
+    const doctorTotal = Number(item.doctorTotalFee) || 0;
+    const doctorPaid = Number(item.doctorPaidFee) || 0;
+    item.doctorBalance = Math.max(0, doctorTotal - doctorPaid);
+    data.processing = data.processing.filter(p => p.id !== id);
+    data.completed.push(item);
+    await saveData();
+    showToast('已标记为完结，尾款已结清');
+    closeModal();
+}
+// ==================== 已完结客户表单 ====================
+function openCompletedForm(existId = null) {
+    const item = existId ? data.completed.find(c => c.id === existId) : {
+        id: genId(), unit: '', contact: '', phone: '', doctorPhone: '', totalFee: '', deposit: '', balance: 0,
+        partner: '',
+        doctorTotalFee: '', doctorPaidFee: '', doctorBalance: '', doctor: '',
+        startDate: formatDate(new Date()), endDate: addYear(formatDate(new Date())),
+        completedAt: formatDate(new Date()), renew: 'pending', remarks: ''
+    };
+    const html = `
+    <div class="modal-inner-container p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold">${existId?'编辑已完结客户':'新增已完结客户'}</h2>
+            <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
+        </div>
+        <form id="completedForm" class="space-y-4">
+            <input type="hidden" name="id" value="${item.id}">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">合作单位名称 *</label>
+                <input type="text" name="unit" required value="${escapeHtml(item.unit||'')}" placeholder="请输入单位名称" class="w-full">
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">联系人</label>
+                    <input type="text" name="contact" value="${escapeHtml(item.contact||'')}" placeholder="联系人姓名" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">联系电话</label>
+                    <input type="tel" name="phone" value="${escapeHtml(item.phone||'')}" placeholder="联系电话" class="w-full" maxlength="20">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">合作总费用（元）</label>
+                    <input type="text" inputmode="decimal" name="totalFee" id="cTotalFeeInput" value="${item.totalFee||''}" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">已支付定金（元）</label>
+                    <input type="text" inputmode="decimal" name="deposit" id="cDepositInput" value="${item.deposit||''}" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">待支付尾款（元）</label>
+                    <input type="text" inputmode="decimal" name="balance" id="cBalanceInput" value="${item.balance||0}" class="w-full bg-gray-50" readonly>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">医师合作总费用（元）</label>
+                    <input type="text" inputmode="decimal" name="doctorTotalFee" id="cDoctorTotalInput" value="${item.doctorTotalFee||''}" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">医师费用已支付（元）</label>
+                    <input type="text" inputmode="decimal" name="doctorPaidFee" id="cDoctorPaidInput" value="${item.doctorPaidFee||0}" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">医师费用尾款（元）</label>
+                    <input type="text" inputmode="decimal" name="doctorBalance" id="cDoctorBalanceInput" value="${item.doctorBalance||''}" class="w-full bg-gray-50" readonly>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">合作医生姓名</label>
+                <input type="text" name="doctor" value="${escapeHtml(item.doctor||'')}" placeholder="合作医生姓名" class="w-full">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">医生电话</label>
+                <input type="tel" name="doctorPhone" value="${escapeHtml(item.doctorPhone||'')}" placeholder="医生联系电话" class="w-full" maxlength="20">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">合作对象</label>
+                <input type="text" name="partner" value="${escapeHtml(item.partner||'')}" placeholder="合作对象" class="w-full">
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">合作起始时间</label>
+                    <input type="date" name="startDate" value="${item.startDate||formatDate(new Date())}" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">合作结束时间</label>
+                    <input type="date" name="endDate" value="${item.endDate||addYear(item.startDate||new Date())}" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">完结时间</label>
+                    <input type="date" name="completedAt" value="${item.completedAt||formatDate(new Date())}" class="w-full">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">续约状态</label>
+                <select name="renew" class="w-full">
+                    <option value="pending" ${item.renew==='pending'?'selected':''}>待确认</option>
+                    <option value="yes" ${item.renew==='yes'?'selected':''}>已续约</option>
+                    <option value="no" ${item.renew==='no'?'selected':''}>不续约</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+                <textarea name="remarks" rows="3" placeholder="备注信息" class="w-full resize-none">${escapeHtml(item.remarks||'')}</textarea>
+            </div>
+            <div class="flex gap-3 pt-4">
+                <button type="button" onclick="closeModal()" class="flex-1 py-3 border border-gray-200 rounded-lg text-gray-600 btn-glass">取消</button>
+                <button type="submit" class="flex-1 py-3 bg-primary text-white rounded-lg btn-glass btn-glow btn-glow-primary">保存</button>
+            </div>
+        </form>
+    </div>
+    `;
+    document.getElementById('modalContent').innerHTML = html;
+    showModal(document.getElementById('modalContainer'));
+
+    function calcCBal() {
+        document.getElementById('cBalanceInput').value = calcBalance(document.getElementById('cTotalFeeInput').value, document.getElementById('cDepositInput').value);
+        document.getElementById('cDoctorBalanceInput').value = calcDoctorBalance(document.getElementById('cDoctorTotalInput').value, document.getElementById('cDoctorPaidInput').value);
+    }
+    document.getElementById('cTotalFeeInput').addEventListener('input', calcCBal);
+    document.getElementById('cDepositInput').addEventListener('input', calcCBal);
+    document.getElementById('cDoctorTotalInput').addEventListener('input', calcCBal);
+    document.getElementById('cDoctorPaidInput').addEventListener('input', calcCBal);
+
+    // 起始日期变化自动设置结束日期为一年后
+    const cStartDateInput = document.querySelector('#completedForm input[name=startDate]');
+    const cEndDateInput = document.querySelector('#completedForm input[name=endDate]');
+    cStartDateInput.addEventListener('change', () => {
+        if (!cEndDateInput.value || cEndDateInput.value === addYear(cStartDateInput.defaultValue)) {
+            cEndDateInput.value = addYear(cStartDateInput.value);
+        }
+    });
+
+    document.getElementById('completedForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const newItem = {
+            id: formData.get('id'),
+            unit: formData.get('unit').trim(),
+            contact: formData.get('contact').trim(),
+            phone: formData.get('phone').trim(),
+            doctorPhone: formData.get('doctorPhone').trim(),
+            totalFee: Number(formData.get('totalFee')) || 0,
+            deposit: Number(formData.get('deposit')) || 0,
+            balance: Number(formData.get('balance')) || 0,
+            partner: formData.get('partner').trim(),
+            doctorTotalFee: Number(formData.get('doctorTotalFee')) || 0,
+            doctorPaidFee: Number(formData.get('doctorPaidFee')) || 0,
+            doctorBalance: Number(formData.get('doctorBalance')) || 0,
+            doctor: formData.get('doctor').trim(),
+            startDate: formData.get('startDate'),
+            endDate: formData.get('endDate'),
+            completedAt: formData.get('completedAt'),
+            renew: formData.get('renew'),
+            remarks: formData.get('remarks').trim(),
+            updatedAt: new Date().toISOString()
+        };
+        const idx = data.completed.findIndex(c => c.id === newItem.id);
+        if (idx >= 0) { newItem.createdAt = data.completed[idx].createdAt; data.completed[idx] = newItem; }
+        else { newItem.createdAt = new Date().toISOString(); data.completed.push(newItem); }
+        await saveData();
+        showToast(existId ? '修改成功' : '新增成功');
+        closeModal();
+    });
+}
+
+function editCompleted(id) { openCompletedForm(id); }
+function viewCompleted(id) {
+    const item = data.completed.find(c => c.id === id);
+    if (!item) return;
+    const daysLeft = calcDaysLeft(item.endDate);
+    const balance = Number(item.balance) || 0;
+    const doctorTotal = Number(item.doctorTotalFee) || 0;
+    const doctorBalance = Number(item.doctorBalance) || 0;
+    const html = `
+    <div class="modal-inner-container p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold">已完结客户详情</h2>
+            <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="space-y-4">
+            <div class="flex justify-between items-start">
+                <h3 class="text-2xl font-bold text-gray-800">${escapeHtml(item.unit)}</h3>
+                ${item.renew === 'no' ? '<span class="badge-red px-3 py-1 rounded-lg text-sm animate-pulse-red">⚠️ 不续约</span>' : item.renew === 'yes' ? '<span class="badge-green px-3 py-1 rounded-lg text-sm">✓ 已续约</span>' : '<span class="badge-blue px-3 py-1 rounded-lg text-sm">待确认续约</span>'}
+            </div>
+            <div class="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-xl">
+                <div><p class="text-sm text-gray-500">联系人</p><p class="font-medium">${escapeHtml(item.contact||'-')}</p></div>
+                <div><p class="text-sm text-gray-500">联系电话</p><p class="font-medium">${escapeHtml(item.phone||'-')}</p></div>
+                <div><p class="text-sm text-gray-500">合作医生</p><p class="font-medium">${escapeHtml(item.doctor||'-')}</p></div>
+                <div><p class="text-sm text-gray-500">合作对象</p><p class="font-medium">${escapeHtml(item.partner||'-')}</p></div>
+                <div><p class="text-sm text-gray-500">完结时间</p><p class="font-medium">${formatDate(item.completedAt)}</p></div>
+                <div><p class="text-sm text-gray-500">剩余天数</p><p class="font-medium ${daysLeft<0?'text-red-600':daysLeft<=30?'text-yellow-600':''}">${daysLeft === null ? '未设置' : daysLeft < 0 ? `已过期${Math.abs(daysLeft)}天` : daysLeft === 0 ? '今天到期' : `剩余${daysLeft}天`}</p></div>
+            </div>
+            ${item.remarks ? `<div class="p-4 bg-gray-50 rounded-xl"><p class="text-sm text-gray-500 mb-1">📝 备注</p><p class="text-gray-800 whitespace-pre-line">${escapeHtml(item.remarks)}</p></div>` : ''}
+            <div class="p-4 bg-gray-50 rounded-xl space-y-2">
+                <p class="font-semibold text-gray-700 mb-2">费用信息</p>
+                <div class="flex justify-between"><span class="text-gray-500">合作总费用</span><span class="font-medium">¥${(item.totalFee||0).toLocaleString()}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">已付定金</span><span class="text-green-600">¥${(item.deposit||0).toLocaleString()}</span></div>
+                ${balance > 0 ? `<div class="flex justify-between items-center p-2 bg-red-50 rounded border border-red-200"><span class="text-red-600"><i class="fa fa-exclamation-circle"></i> 待支付尾款</span><span class="text-red-600 font-bold">¥${balance.toLocaleString()}</span></div>` : `<div class="flex justify-between items-center p-2 bg-green-50 rounded border border-green-200"><span class="text-green-600"><i class="fa fa-check-circle"></i> 尾款已结清</span></div>`}
+                ${doctorTotal > 0 ? `<div>
+                <div class="flex justify-between"><span class="text-gray-500">医师合作总费用</span><span class="font-medium">¥${(item.doctorTotalFee||0).toLocaleString()}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">医师费用已支付</span><span class="text-green-600">¥${(item.doctorPaidFee||0).toLocaleString()}</span></div>
+                ${doctorBalance > 0 ? `<div class="flex justify-between items-center p-2 bg-red-50 rounded border border-red-200"><span class="text-red-600"><i class="fa fa-exclamation-circle"></i> 医师费用待付</span><span class="text-red-600 font-bold">¥${doctorBalance.toLocaleString()}</span></div>` : `<div class="flex justify-between items-center p-2 bg-green-50 rounded border border-green-200"><span class="text-green-600"><i class="fa fa-check-circle"></i> 医师费用已结清</span></div>`}
+                </div>` : ''}
+            </div>
+            <div class="p-4 bg-gray-50 rounded-xl">
+                <p class="text-sm text-gray-500 mb-1">合作时间</p>
+                <p class="font-medium">${formatDate(item.startDate)} 至 ${formatDate(item.endDate)}</p>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeModal(); editCompleted('${item.id}')" class="flex-1 py-3 border border-primary text-primary rounded-lg btn-glass">编辑</button>
+                <button onclick="deleteCompleted('${item.id}')" class="flex-1 py-3 bg-red-500 text-white rounded-lg btn-glass btn-glow btn-glow-red">删除</button>
+            </div>
+        </div>
+    </div>
+    `;
+    document.getElementById('modalContent').innerHTML = html;
+    showModal(document.getElementById('modalContainer'));
+}
+
+async function deleteCompleted(id) {
+    if (!confirm('确定删除该客户吗？删除后不可恢复（可从自动备份恢复）。')) return;
+    data.completed = data.completed.filter(c => c.id !== id);
+    await saveData();
+    showToast('已删除');
+    closeModal();
+}
+
+// ==================== 待办事项功能 ====================
+function openTodoForm() {
+    const html = `
+    <div class="modal-inner-container p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold">新增待办事项</h2>
+            <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
+        </div>
+        <form id="todoForm" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">待办内容 *</label>
+                <textarea name="content" rows="3" required placeholder="请输入待办内容" class="w-full resize-none"></textarea>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">截止日期</label>
+                    <input type="date" name="deadline" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">优先级</label>
+                    <select name="priority" class="w-full">
+                        <option value="medium">中优先级</option>
+                        <option value="high">高优先级</option>
+                        <option value="low">低优先级</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-3 pt-4">
+                <button type="button" onclick="closeModal()" class="flex-1 py-3 border border-gray-200 rounded-lg text-gray-600 btn-glass">取消</button>
+                <button type="submit" class="flex-1 py-3 bg-primary text-white rounded-lg btn-glass btn-glow btn-glow-primary">添加</button>
+            </div>
+        </form>
+    </div>
+    `;
+    document.getElementById('modalContent').innerHTML = html;
+    showModal(document.getElementById('modalContainer'));
+    document.getElementById('todoForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        data.todo.push({
+            id: genId(),
+            content: formData.get('content').trim(),
+            deadline: formData.get('deadline'),
+            priority: formData.get('priority'),
+            done: false,
+            top: false,
+            createdAt: new Date().toISOString()
+        });
+        await saveData();
+        showToast('待办已添加');
+        closeModal();
+    });
+}
+
+async function toggleTodoDone(id) {
+    const item = data.todo.find(t => t.id === id);
+    if (item) { 
+        item.done = !item.done; 
+        item.updatedAt = new Date().toISOString();
+        if (item.done) item.completedAt = new Date().toISOString();
+        else delete item.completedAt;
+        await saveData(); 
+    }
+}
+async function toggleTodoTop(id) {
+    const item = data.todo.find(t => t.id === id);
+    if (item) { item.top = !item.top; item.updatedAt = new Date().toISOString(); await saveData(); }
+}
+async function deleteTodo(id) {
+    if (!confirm('确定删除该待办吗？')) return;
+    data.todo = data.todo.filter(t => t.id !== id);
+    await saveData();
+    showToast('已删除');
+}
+
+// ==================== 记账本功能 ====================
+function renderAccount() {
+    const listEl = document.getElementById('accountList');
+    const emptyEl = document.getElementById('accountEmpty');
+    const keyword = (document.getElementById('accountSearchInput')?.value || '').toLowerCase().trim();
+    const filter = currentAccountFilter;
+    
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
+    const quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1).getTime();
+
+    let items = data.accounts.filter(item => {
+        if (!keyword) return true;
+        return (item.unit||'').toLowerCase().includes(keyword) || (item.remark||'').toLowerCase().includes(keyword);
+    });
+
+    items = items.filter(item => {
+        const itemDate = new Date(item.date).getTime();
+        if (filter === 'month') return itemDate >= monthStart;
+        if (filter === 'quarter') return itemDate >= quarterStart;
+        if (filter === 'year') return itemDate >= yearStart;
+        return true;
+    });
+
+    // 汇总统计：顶部卡片统一基于全部记账记录（总览口径），列表受搜索/筛选影响
+    const totalIncome = data.accounts.reduce((sum,i) => sum + (Number(i.amount)||0), 0);
+    const monthIncome = data.accounts.filter(i => new Date(i.date).getTime() >= monthStart).reduce((sum,i) => sum + (Number(i.amount)||0), 0);
+    const todayIncome = data.accounts.filter(i => new Date(i.date).getTime() >= todayStart).reduce((sum,i) => sum + (Number(i.amount)||0), 0);
+
+    document.getElementById('totalIncome').textContent = `¥${totalIncome.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('monthIncome').textContent = `¥${monthIncome.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('todayIncome').textContent = `¥${todayIncome.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+
+    if (items.length === 0) {
+        listEl.innerHTML = '';
+        if (keyword || filter !== 'all') {
+            emptyEl.innerHTML = '<div class="text-5xl mb-3 text-gray-300"><i class="fa fa-search"></i></div><p>未找到匹配的记账记录</p>';
+        } else {
+            emptyEl.innerHTML = '<div class="text-5xl mb-3 text-gray-300"><i class="fa fa-money"></i></div><p>暂无记账记录，点击右下角+添加</p>';
+        }
+        emptyEl.classList.remove('hidden');
+        return;
+    }
+    emptyEl.classList.add('hidden');
+
+    listEl.innerHTML = items.map(item => `
+        <div class="p-4 rounded-2xl card-shadow border border-white/40 flex items-center justify-between gap-4">
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="font-semibold text-gray-800">${escapeHtml(item.unit)}</span>
+                    <span class="text-xs text-gray-400">${formatDate(item.date)}</span>
+                </div>
+                ${item.remark ? `<p class="text-sm text-gray-500 truncate">${escapeHtml(item.remark)}</p>` : ''}
+            </div>
+            <div class="flex items-center gap-3 shrink-0">
+                <span class="text-xl font-bold text-success">+¥${(Number(item.amount)||0).toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                <button onclick="deleteAccount('${item.id}')" class="w-8 h-8 rounded-full text-red-500 hover:bg-red-50 flex items-center justify-center btn-glass">
+                    <i class="fa fa-trash-o"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function openAccountForm() {
+    const today = formatDate(new Date());
+    const html = `
+    <div class="modal-inner-container p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-bold">新增收入记录</h2>
+            <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
+        </div>
+        <form id="accountForm" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">日期 *</label>
+                    <input type="date" name="date" required value="${today}" class="w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">收入金额（元）*</label>
+                    <input type="text" inputmode="decimal" name="amount" required placeholder="0.00" class="w-full">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">单位/客户名称 *</label>
+                <input type="text" name="unit" required placeholder="请输入付款单位名称" list="unitSuggestions" class="w-full">
+                <datalist id="unitSuggestions">
+                    ${[...data.processing, ...data.completed].map(c => `<option value="${escapeHtml(c.unit)}"></option>`).join('')}
+                </datalist>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+                <input type="text" name="remark" placeholder="备注说明（如尾款、定金、医师费用等）" class="w-full">
+            </div>
+            <div class="flex gap-3 pt-4">
+                <button type="button" onclick="closeModal()" class="flex-1 py-3 border border-gray-200 rounded-lg text-gray-600 btn-glass">取消</button>
+                <button type="submit" class="flex-1 py-3 bg-success text-white rounded-lg btn-glass btn-glow">保存记录</button>
+            </div>
+        </form>
+    </div>
+    `;
+    document.getElementById('modalContent').innerHTML = html;
+    showModal(document.getElementById('modalContainer'));
+    document.getElementById('accountForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        data.accounts.push({
+            id: genId(),
+            date: formData.get('date'),
+            unit: formData.get('unit').trim(),
+            amount: Number(formData.get('amount')) || 0,
+            remark: formData.get('remark').trim(),
+            createdAt: new Date().toISOString()
+        });
+        await saveData();
+        showToast('记账记录添加成功');
+        closeModal();
+    });
+}
+
+async function deleteAccount(id) {
+    if (!confirm('确定删除这条记账记录吗？')) return;
+    data.accounts = data.accounts.filter(a => a.id !== id);
+    await saveData();
+    showToast('已删除');
+}
+
+// ==================== 统计功能 ====================
+function updateStats() {
+    document.getElementById('statProcessing').textContent = data.processing.length;
+    document.getElementById('statCompleted').textContent = data.completed.length;
+    document.getElementById('statTodo').textContent = data.todo.filter(t => !t.done).length;
+    const unpaid = [...data.processing, ...data.completed].reduce((sum,c) => sum + (Number(c.balance)||0), 0);
+    document.getElementById('statUnpaid').textContent = `¥${unpaid.toLocaleString()}`;
+}
+
+function openStatModal() {
+    if (typeof Chart === 'undefined') return showToast('图表组件加载失败，请检查网络后重试');
+    showModal(document.getElementById('statModal'));
+    setTimeout(() => {
+        if (statusChart) statusChart.destroy();
+        if (feeChart) feeChart.destroy();
+        const statusCtx = document.getElementById('statusChart').getContext('2d');
+        statusChart = new Chart(statusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['办理中', '已完结', '待办'],
+                datasets: [{ data: [data.processing.length, data.completed.length, data.todo.filter(t=>!t.done).length], backgroundColor: ['#0D9488', '#3B82F6', '#FBBF24'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: '客户状态分布' } } }
+        });
+        const feeCtx = document.getElementById('feeChart').getContext('2d');
+        const totalFee = [...data.processing, ...data.completed].reduce((s,c) => s + (Number(c.totalFee)||0), 0);
+        const paidFee = [...data.processing, ...data.completed].reduce((s,c) => s + ((Number(c.totalFee)||0) - (Number(c.balance)||0)), 0);
+        const unpaidFee = [...data.processing, ...data.completed].reduce((s,c) => s + (Number(c.balance)||0), 0);
+        feeChart = new Chart(feeCtx, {
+            type: 'bar',
+            data: {
+                labels: ['总费用', '已收款', '待收款'],
+                datasets: [{ label: '金额（元）', data: [totalFee, paidFee, unpaidFee], backgroundColor: ['#3B82F6', '#10B981', '#F87171'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: '费用统计' } } }
+        });
+    }, 100);
+}
+
+// ==================== Excel导出 ====================
+function exportExcel() {
+    if (typeof XLSX === 'undefined') return showToast('Excel导出组件加载失败，请检查网络后重试');
+    const wb = XLSX.utils.book_new();
+    // 办理中
+    const processingData = data.processing.map(p => ({
+        '单位名称': p.unit, '联系人': p.contact, '联系电话': p.phone, '合作医生': p.doctor, '合作对象': p.partner,
+        '所需证件条件': p.requirements,
+        '合作总费用': p.totalFee, '已付定金': p.deposit, '待付尾款': p.balance,
+        '医师总费用': p.doctorTotalFee, '医师已支付': p.doctorPaidFee, '医师尾款': p.doctorBalance,
+        '起始日期': formatDate(p.startDate), '结束日期': formatDate(p.endDate)
+    }));
+    const ws1 = XLSX.utils.json_to_sheet(processingData);
+    XLSX.utils.book_append_sheet(wb, ws1, '办理中客户');
+    // 已完结
+    const completedData = data.completed.map(c => ({
+        '单位名称': c.unit, '联系人': c.contact, '联系电话': c.phone, '合作医生': c.doctor, '医生电话': c.doctorPhone,
+        '合作对象': c.partner,
+        '合作总费用': c.totalFee, '已付定金': c.deposit, '待付尾款': c.balance,
+        '医师总费用': c.doctorTotalFee, '医师已支付': c.doctorPaidFee, '医师尾款': c.doctorBalance,
+        '起始日期': formatDate(c.startDate), '结束日期': formatDate(c.endDate), '完结日期': formatDate(c.completedAt),
+        '续约状态': c.renew === 'yes' ? '已续约' : c.renew === 'no' ? '不续约' : '待确认', '备注': c.remarks
+    }));
+    const ws2 = XLSX.utils.json_to_sheet(completedData);
+    XLSX.utils.book_append_sheet(wb, ws2, '已完结客户');
+    // 待办
+    const todoData = data.todo.map(t => ({
+        '待办内容': t.content, '截止日期': formatDate(t.deadline), '优先级': t.priority === 'high' ? '高' : t.priority === 'low' ? '低' : '中',
+        '是否完成': t.done ? '已完成' : '待完成', '是否置顶': t.top ? '是' : '否'
+    }));
+    const ws3 = XLSX.utils.json_to_sheet(todoData);
+    XLSX.utils.book_append_sheet(wb, ws3, '待办事项');
+    // 记账
+    const accountData = data.accounts.map(a => ({
+        '日期': formatDate(a.date), '单位名称': a.unit, '收入金额': a.amount, '备注': a.remark
+    }));
+    const ws4 = XLSX.utils.json_to_sheet(accountData);
+    XLSX.utils.book_append_sheet(wb, ws4, '记账记录');
+    XLSX.writeFile(wb, `客户管理记录_${formatDate(new Date())}.xlsx`);
+    showToast('Excel导出成功');
+}
+
+// ==================== 同步与加密功能 ====================
+function xorEncrypt(text, key) {
+    if (!key) return text;
+    let result = '';
+    for (let i = 0; i < text.length; i++) {
+        result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return btoa(unescape(encodeURIComponent(result)));
+}
+function xorDecrypt(encoded, key) {
+    try {
+        const text = decodeURIComponent(escape(atob(encoded)));
+        let result = '';
+        for (let i = 0; i < text.length; i++) {
+            result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+        }
+        return result;
+    } catch (e) { return null; }
+}
+
+// ==================== 数据同步功能 ====================
+
+function openSyncModal() {
+    showModal(document.getElementById('syncModal'));
+    const savedKey = localStorage.getItem(SYNC_KEY_STORAGE) || '';
+    document.getElementById('syncKeyInput').value = savedKey;
+    renderBackupList();
+}
+
+function mergeById(localArr, remoteArr) {
+    const map = new Map();
+    [...localArr, ...(remoteArr || [])].forEach(item => {
+        if (!item || item.id == null) return;
+        const existing = map.get(item.id);
+        if (!existing) { map.set(item.id, item); return; }
+        // 同 id 记录按 updatedAt 取最新版本，缺失时间视为更旧
+        const curTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : -Infinity;
+        const newTime = item.updatedAt ? new Date(item.updatedAt).getTime() : -Infinity;
+        if (isNaN(curTime)) { map.set(item.id, item); return; }
+        if (isNaN(newTime) || newTime >= curTime) map.set(item.id, item);
+    });
+    return Array.from(map.values());
+}
+
+function mergeData(remoteData) {
+    // 合并数据，同 id 记录按 updatedAt 取最新版本，不会覆盖丢失数据
+    data.processing = mergeById(data.processing, remoteData.processing).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+    data.completed = mergeById(data.completed, remoteData.completed).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+    data.todo = mergeById(data.todo, remoteData.todo).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+    data.accounts = mergeById(data.accounts, remoteData.accounts).sort((a,b) => new Date(b.date) - new Date(a.date));
+    normalizeData();
+    migrateData();
+}
+
+async function copySyncCode() {
+    const key = document.getElementById('syncKeyInput').value.trim();
+    if (!key) return showToast('请先设置同步密钥');
+    localStorage.setItem(SYNC_KEY_STORAGE, key);
+    const code = xorEncrypt(JSON.stringify(data), key);
+    try {
+        await navigator.clipboard.writeText(code);
+        showToast('同步码已复制到剪贴板，发送到另一端粘贴导入即可');
+    } catch (e) {
+        const input = document.getElementById('syncCodeInput');
+        input.value = code;
+        input.select();
+        document.execCommand('copy');
+        showToast('同步码已复制，请粘贴发送到另一端');
+    }
+}
+
+async function importSyncCode() {
+    const key = document.getElementById('syncKeyInput').value.trim();
+    if (!key) return showToast('请先设置同步密钥');
+    localStorage.setItem(SYNC_KEY_STORAGE, key);
+    const code = document.getElementById('syncCodeInput').value.trim();
+    if (!code) return showToast('请粘贴同步码');
+    try {
+        const jsonStr = xorDecrypt(code, key);
+        if (!jsonStr) return showToast('同步码错误或密钥不匹配');
+        const remoteData = JSON.parse(jsonStr);
+        mergeData(remoteData);
+        await saveData();
+        showToast('同步成功，数据已合并');
+        document.getElementById('syncCodeInput').value = '';
+    } catch (e) {
+        showToast('同步失败：同步码无效或密钥错误');
+    }
+}
+
+// ==================== 备份导入导出 ====================
+function exportBackupFile() {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `客户管理系统备份_${formatDate(new Date())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('备份文件已下载');
+}
+
+function importBackupFile(file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const imported = JSON.parse(e.target.result);
+            if (!imported || typeof imported !== 'object' ||
+                !Array.isArray(imported.processing) || !Array.isArray(imported.completed) || !Array.isArray(imported.todo)) {
+                return showToast('备份文件格式错误');
+            }
+            if (confirm('确定导入此备份吗？当前数据将被覆盖，导入前会自动备份当前数据。')) {
+                await createBackup('before_import');
+                data = imported;
+                normalizeData();
+                migrateData();
+                await saveData();
+                showToast('导入成功');
+                closeModal();
+            }
+        } catch (err) { showToast('导入失败：文件格式错误'); }
+    };
+    reader.readAsText(file);
+}
+
+// ==================== PWA 安装与离线支持 ====================
+function initPWA() {
+    const banner = document.getElementById('pwaBanner');
+    const title = document.getElementById('pwaBannerTitle');
+    const content = document.getElementById('pwaBannerContent');
+    const actions = document.getElementById('pwaBannerActions');
+    const closeBtn = document.getElementById('closePwaBanner');
+    let deferredPrompt = null;
+    const dismissed = localStorage.getItem('crm_pwa_banner_dismissed');
+
+    function showBanner(t, c, actEls) {
+        if (dismissed && t !== '⚠️ 当前是临时链接') return;
+        title.textContent = t;
+        content.innerHTML = c;
+        actions.innerHTML = '';
+        (actEls || []).forEach(el => actions.appendChild(el));
+        banner.classList.remove('hidden');
+    }
+    function hideBanner() { banner.classList.add('hidden'); }
+    closeBtn.onclick = () => { hideBanner(); localStorage.setItem('crm_pwa_banner_dismissed', '1'); };
+
+    // 1) 本地文件模式警告：file:// 添加到桌面不可靠
+    if (location.protocol === 'file:') {
+        showBanner('注意：本地文件模式', '直接打开的本地 HTML 文件，添加到桌面后可能失效（文件路径变化或系统清理）。请把本页面部署到固定网址后再添加到桌面。');
+        return;
+    }
+    // 2) 临时链接警告：aka.doubaocdn.com 等临时域名会过期失效
+    if (/aka\.doubaocdn\.com|doubaocdn\.com|temporary|tmp[^a-z]|sandbox/i.test(location.hostname)) {
+        showBanner('⚠️ 当前是临时链接', '此链接会在几小时到几天后过期，过期后桌面图标将打不开。请将页面部署到固定网址（如 GitHub Pages），再用固定网址添加到桌面。');
+    }
+
+    // 3) Android/Chrome：安装提示
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        const btn = document.createElement('button');
+        btn.className = 'px-4 py-2 text-sm bg-primary text-white rounded-lg btn-glass btn-glow';
+        btn.innerHTML = '<i class="fa fa-download mr-1"></i>安装到桌面';
+        btn.onclick = async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            try { const choice = await deferredPrompt.userChoice; if (choice.outcome === 'accepted') hideBanner(); }
+            catch (err) { /* 用户取消 */ }
+            deferredPrompt = null;
+        };
+        showBanner('安装到桌面', '安装后可从手机桌面直接打开，断网也能使用已加载的页面。', [btn]);
+    });
+    window.addEventListener('appinstalled', () => { hideBanner(); localStorage.setItem('crm_pwa_banner_dismissed', '1'); });
+
+    // 4) iOS Safari：引导添加到主屏幕
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isStandalone = window.navigator.standalone === true ||
+        (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    if (isIOS && !isStandalone && location.protocol !== 'file:') {
+        showBanner('添加到主屏幕', '点击浏览器底部"分享"按钮 → 选择"添加到主屏幕"，即可像 App 一样从桌面打开。');
+    }
+
+    // 5) Service Worker 注册（仅 http/https；file:// 无法注册）
+    if ('serviceWorker' in navigator && (location.protocol === 'http:' || location.protocol === 'https:')) {
+        navigator.serviceWorker.register('sw.js').catch((err) => {
+            console.error('SW 注册失败', err);
+        });
+    }
+}
+
+// ==================== 事件绑定与初始化 ====================
+async function init() {
+    try {
+        await openDB();
+        await loadData();
+    } catch (e) {
+        console.error('数据库初始化失败，使用localStorage降级', e);
+        // 降级到localStorage
+        const saved = localStorage.getItem('crm_system_data_v2');
+        if (saved) data = JSON.parse(saved);
+        normalizeData();
+        migrateData();
+    }
+
+    initDailyBackground();
+    initRippleEffect();
+    initTabs();
+    renderFilters();
+    render();
+    setVH();
+    window.addEventListener('resize', setVH);
+    initPWA();
+
+    // 按钮事件
+    document.getElementById('addBtn').onclick = () => {
+        if (currentTab === 'todo') openTodoForm();
+        else if (currentTab === 'account') openAccountForm();
+        else if (currentTab === 'completed') openCompletedForm();
+        else openProcessingForm();
+    };
+    document.getElementById('syncBtn').onclick = openSyncModal;
+    document.getElementById('syncBtnMobile').onclick = openSyncModal;
+    document.getElementById('statBtn').onclick = openStatModal;
+    document.getElementById('statBtnMobile').onclick = openStatModal;
+    document.getElementById('exportBtn').onclick = exportExcel;
+    document.getElementById('exportBtnMobile').onclick = exportExcel;
+    document.getElementById('closeAlert').onclick = () => document.getElementById('alertBanner').classList.add('hidden');
+    document.getElementById('closeStat').onclick = closeModal;
+    document.getElementById('closeSync').onclick = closeModal;
+    document.getElementById('searchInput').addEventListener('input', render);
+    document.getElementById('accountSearchInput').addEventListener('input', render);
+    document.getElementById('accountFilter').addEventListener('change', () => {
+        currentAccountFilter = document.getElementById('accountFilter').value;
+        render();
+    });
+    document.querySelectorAll('.modal-overlay').forEach(modal => {
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    });
+
+    // 同步弹窗事件
+    document.getElementById('saveSyncKeyBtn').onclick = () => {
+        const key = document.getElementById('syncKeyInput').value.trim();
+        localStorage.setItem(SYNC_KEY_STORAGE, key);
+        showToast('密钥已保存');
+    };
+    document.getElementById('copySyncCodeBtn').onclick = copySyncCode;
+    document.getElementById('importSyncCodeBtn').onclick = importSyncCode;
+    document.getElementById('toggleBackupBtn').onclick = () => {
+        const container = document.getElementById('backupContainer');
+        const icon = document.querySelector('#toggleBackupBtn .fa-chevron-down');
+        container.classList.toggle('hidden');
+        icon.style.transform = container.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
+    };
+    document.getElementById('backupNowBtn').onclick = async () => { await createBackup('manual'); showToast('备份成功'); };
+    document.getElementById('exportBackupBtn').onclick = exportBackupFile;
+    document.getElementById('importBackupInput').onchange = (e) => { if (e.target.files[0]) importBackupFile(e.target.files[0]); e.target.value = ''; };
+}
+
+window.restoreBackup = restoreBackup;
+window.downloadBackup = downloadBackup;
+window.deleteBackup = deleteBackup;
+window.viewProcessing = viewProcessing;
+window.editProcessing = editProcessing;
+window.deleteProcessing = deleteProcessing;
+window.moveToDone = moveToDone;
+window.viewCompleted = viewCompleted;
+window.editCompleted = editCompleted;
+window.deleteCompleted = deleteCompleted;
+window.toggleTodoDone = toggleTodoDone;
+window.toggleTodoTop = toggleTodoTop;
+window.deleteTodo = deleteTodo;
+window.deleteAccount = deleteAccount;
+
+init().catch(console.error);
+</script>
+</body>
+</html>
+<!--02558863312395614730091112-->
