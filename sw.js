@@ -1,7 +1,7 @@
 /* 客户管理系统 Service Worker —— 离线缓存
  * 版本号：修改本文件或页面后请递增 CACHE_VERSION，浏览器会自动更新并清理旧缓存
  */
-const CACHE_VERSION = 'crm-pwa-v4';
+const CACHE_VERSION = 'crm-pwa-v5';
 const CORE_CACHE = CACHE_VERSION + '-core';
 const RUNTIME_CACHE = CACHE_VERSION + '-runtime';
 

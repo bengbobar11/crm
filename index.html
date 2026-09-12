@@ -1287,7 +1287,7 @@ async function deleteProcessing(id) {
     markDeleted(id);
     await saveData();
     showToast('已删除');
-    if (getCloudConfig()) cloudSync(false);   // 删除后立即同步，避免云端旧数据把记录"复活"
+    if (getCloudConfig()) cloudSync(true);   // 删除后立即同步，避免云端旧数据把记录"复活"
 }
 // ==================== 新增/编辑办理中客户表单 ====================
 function openProcessingForm(existId = null) {
@@ -1746,7 +1746,7 @@ async function deleteCompleted(id) {
     await saveData();
     showToast('已删除');
     closeModal();
-    if (getCloudConfig()) cloudSync(false);   // 删除后立即同步云端，防止记录"复活"
+    if (getCloudConfig()) cloudSync(true);   // 删除后立即同步云端，防止记录"复活"
 }
 
 // ==================== 待办事项功能 ====================
@@ -1823,7 +1823,7 @@ async function deleteTodo(id) {
     markDeleted(id);
     await saveData();
     showToast('已删除');
-    if (getCloudConfig()) cloudSync(false);   // 删除后立即同步云端，防止记录"复活"
+    if (getCloudConfig()) cloudSync(true);   // 删除后立即同步云端，防止记录"复活"
 }
 
 // ==================== 记账本功能 ====================
@@ -1955,7 +1955,7 @@ async function deleteAccount(id) {
     markDeleted(id);
     await saveData();
     showToast('已删除');
-    if (getCloudConfig()) cloudSync(false);   // 删除后立即同步云端，防止记录"复活"
+    if (getCloudConfig()) cloudSync(true);   // 删除后立即同步云端，防止记录"复活"
 }
 
 // ==================== 统计功能 ====================
@@ -2153,6 +2153,7 @@ const CLOUD_CFG_KEY = 'crm_cloud_config';
 const CLOUD_FILE_PATH = 'crm-data.json';
 const CLOUD_SALT = new TextEncoder().encode('crm-cloud-sync-salt-v1');
 let _cloudSyncing = false;      // 防止云同步触发的 saveData 再次触发推送
+let _syncQueued = false;        // 同步运行期间有新的同步请求 → 结束后排队补跑一次（避免删除/修改推送丢失）
 let _autoPushTimer = null;
 
 function getCloudConfig() {
@@ -2420,7 +2421,7 @@ async function cloudSync(showMsg) {
         if (showMsg) showToast('请先保存云同步配置');
         return;
     }
-    if (_cloudSyncing) return;
+    if (_cloudSyncing) { _syncQueued = true; return; }   // 正在同步 → 排队，结束后补跑一次
     _cloudSyncing = true;
     setCloudState('正在同步…');
     try {
@@ -2480,6 +2481,11 @@ async function cloudSync(showMsg) {
         if (showMsg) showToast('云同步失败：' + msg);
     } finally {
         _cloudSyncing = false;
+        // 同步期间有新的同步请求（如删除后立即同步）→ 结束后补跑一次，确保最新状态推送
+        if (_syncQueued) {
+            _syncQueued = false;
+            setTimeout(() => { cloudSync(false); }, 400);
+        }
     }
 }
 
