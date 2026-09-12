@@ -641,12 +641,22 @@ function normalizeData() {
     ['processing', 'completed', 'todo', 'accounts'].forEach(k => {
         if (!Array.isArray(data[k])) data[k] = [];
     });
+    if (!Array.isArray(data.deleted)) data.deleted = [];   // 删除标记（tombstone）列表
     ['processing', 'completed', 'todo', 'accounts'].forEach(k => {
         data[k].forEach(item => {
             if (!item || typeof item !== 'object') return;
             if (typeof item.id !== 'string' || !/^[A-Za-z0-9]+$/.test(item.id)) item.id = genId();
         });
     });
+}
+
+// 记录删除标记（tombstone）：云同步合并时，已删除的记录即使云端仍残留也不再合并回来（防止"删除后自动恢复"）
+function markDeleted(id) {
+    if (!id) return;
+    if (!Array.isArray(data.deleted)) data.deleted = [];
+    data.deleted = data.deleted.filter(t => t && t.id !== id);
+    data.deleted.push({ id, at: new Date().toISOString() });
+    if (data.deleted.length > 500) data.deleted = data.deleted.slice(-500);   // 限制长度，防止无限增长
 }
 
 async function loadData() {
@@ -743,12 +753,14 @@ async function saveData() {
         if(!t.updatedAt) t.updatedAt = t.createdAt || now;
         t.title = String(t.title||'').trim();
     });
-    // 自动删除完成超过12小时的待办
-    data.todo = data.todo.filter(t => {
-        if (!t.done) return true;
+    // 自动删除完成超过12小时的待办（记录删除标记，防止云端残留导致"复活"）
+    const expiredTodos = data.todo.filter(t => {
+        if (!t.done) return false;
         if (!t.completedAt) t.completedAt = t.updatedAt;
-        return (new Date(now) - new Date(t.completedAt)) < 12 * 60 * 60 * 1000;
+        return (new Date(now) - new Date(t.completedAt)) >= 12 * 60 * 60 * 1000;
     });
+    expiredTodos.forEach(t => markDeleted(t.id));
+    if (expiredTodos.length) data.todo = data.todo.filter(t => expiredTodos.indexOf(t) === -1);
     try {
         await dbPut('crm_data', data);
         scheduleAutoBackup(); // 数据变更后调度自动备份
@@ -1272,8 +1284,10 @@ function render() {
 async function deleteProcessing(id) {
     if (!confirm('确定删除该客户吗？删除后不可恢复（可从自动备份恢复）。')) return;
     data.processing = data.processing.filter(p => p.id !== id);
+    markDeleted(id);
     await saveData();
     showToast('已删除');
+    if (getCloudConfig()) cloudSync(false);   // 删除后立即同步，避免云端旧数据把记录"复活"
 }
 // ==================== 新增/编辑办理中客户表单 ====================
 function openProcessingForm(existId = null) {
@@ -1728,9 +1742,11 @@ function viewCompleted(id) {
 async function deleteCompleted(id) {
     if (!confirm('确定删除该客户吗？删除后不可恢复（可从自动备份恢复）。')) return;
     data.completed = data.completed.filter(c => c.id !== id);
+    markDeleted(id);
     await saveData();
     showToast('已删除');
     closeModal();
+    if (getCloudConfig()) cloudSync(false);   // 删除后立即同步云端，防止记录"复活"
 }
 
 // ==================== 待办事项功能 ====================
@@ -1804,8 +1820,10 @@ async function toggleTodoTop(id) {
 async function deleteTodo(id) {
     if (!confirm('确定删除该待办吗？')) return;
     data.todo = data.todo.filter(t => t.id !== id);
+    markDeleted(id);
     await saveData();
     showToast('已删除');
+    if (getCloudConfig()) cloudSync(false);   // 删除后立即同步云端，防止记录"复活"
 }
 
 // ==================== 记账本功能 ====================
@@ -1934,8 +1952,10 @@ function openAccountForm() {
 async function deleteAccount(id) {
     if (!confirm('确定删除这条记账记录吗？')) return;
     data.accounts = data.accounts.filter(a => a.id !== id);
+    markDeleted(id);
     await saveData();
     showToast('已删除');
+    if (getCloudConfig()) cloudSync(false);   // 删除后立即同步云端，防止记录"复活"
 }
 
 // ==================== 统计功能 ====================
@@ -2064,11 +2084,30 @@ function mergeById(localArr, remoteArr) {
 }
 
 function mergeData(remoteData) {
-    // 合并数据，同 id 记录按 updatedAt 取最新版本，不会覆盖丢失数据
-    data.processing = mergeById(data.processing, remoteData.processing).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
-    data.completed = mergeById(data.completed, remoteData.completed).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
-    data.todo = mergeById(data.todo, remoteData.todo).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
-    data.accounts = mergeById(data.accounts, remoteData.accounts).sort((a,b) => new Date(b.date) - new Date(a.date));
+    if (!remoteData) remoteData = {};
+    if (!Array.isArray(data.deleted)) data.deleted = [];
+    // 1) 收集删除标记：本地 + 云端（其他设备删除的记录，本端也删除 → 多端删除传播）
+    const remoteDeleted = Array.isArray(remoteData.deleted) ? remoteData.deleted : [];
+    const deletedMap = new Map();
+    data.deleted.forEach(t => { if (t && t.id) deletedMap.set(t.id, t); });
+    remoteDeleted.forEach(t => {
+        if (!t || !t.id) return;
+        const old = deletedMap.get(t.id);
+        if (!old || new Date(t.at || 0) > new Date(old.at || 0)) deletedMap.set(t.id, t);
+    });
+    data.deleted = Array.from(deletedMap.values());
+    const deletedIds = new Set(data.deleted.map(t => t.id));
+    // 2) 云端数据过滤掉已删除记录后，再按 updatedAt 取最新合并（已删除的永不复活）
+    const filterDel = arr => (arr || []).filter(item => item && item.id != null && !deletedIds.has(item.id));
+    data.processing = mergeById(data.processing, filterDel(remoteData.processing)).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+    data.completed = mergeById(data.completed, filterDel(remoteData.completed)).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+    data.todo = mergeById(data.todo, filterDel(remoteData.todo)).sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+    data.accounts = mergeById(data.accounts, filterDel(remoteData.accounts)).sort((a,b) => new Date(b.date) - new Date(a.date));
+    // 3) 云端标记删除的记录，从本地数组中移除
+    ['processing', 'completed', 'todo', 'accounts'].forEach(k => {
+        data[k] = (data[k] || []).filter(item => !item || item.id == null || !deletedIds.has(item.id));
+    });
+    if (data.deleted.length > 500) data.deleted = data.deleted.slice(-500);
     normalizeData();
     migrateData();
 }
