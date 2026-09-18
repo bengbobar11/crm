@@ -1258,6 +1258,7 @@ function renderTodo() {
                     </div>
                 </div>
                 <div class="flex gap-1 shrink-0">
+                    <button onclick="openTodoForm('${item.id}')" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-primary btn-glass" title="编辑"><i class="fa fa-pencil"></i></button>
                     <button onclick="toggleTodoTop('${item.id}')" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-primary btn-glass" title="置顶"><i class="fa fa-thumb-tack"></i></button>
                     <button onclick="deleteTodo('${item.id}')" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-red-500 btn-glass" title="删除"><i class="fa fa-trash"></i></button>
                 </div>
@@ -1288,6 +1289,118 @@ async function deleteProcessing(id) {
     await saveData();
     showToast('已删除');
     if (getCloudConfig()) cloudSync(true);   // 删除后立即同步，避免云端旧数据把记录"复活"
+}
+
+// ==================== 合同上传与管理 ====================
+const CONTRACT_MAX_SIZE = 5 * 1024 * 1024;   // 单份合同最大 5MB（防 IndexedDB / 云端同步体积过大）
+
+function getCustomerItem(pid, section) {
+    return section === 'completed' ? data.completed.find(c => c.id === pid) : data.processing.find(p => p.id === pid);
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+// 合同区块 HTML（嵌入客户详情页）
+function contractsBlockHtml(pid, section) {
+    const item = getCustomerItem(pid, section);
+    if (!item) return '';
+    const contracts = Array.isArray(item.contracts) ? item.contracts : [];
+    const listHtml = contracts.map(c => `
+        <div class="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-200">
+            <div class="flex items-center gap-2 min-w-0">
+                <i class="fa fa-file-text-o text-primary shrink-0"></i>
+                <div class="min-w-0">
+                    <p class="text-sm font-medium text-gray-800 truncate" title="${escapeHtml(c.name || '')}">${escapeHtml(c.name || '未命名')}</p>
+                    <p class="text-xs text-gray-400">${formatFileSize(c.size || 0)} · ${formatDate(c.uploadedAt)}</p>
+                </div>
+            </div>
+            <div class="flex gap-1 shrink-0">
+                <button onclick="openContract('${pid}','${section}','${c.id}')" class="px-2 py-1 text-xs text-primary border border-primary rounded hover:bg-primary hover:text-white transition" title="查看合同"><i class="fa fa-eye"></i></button>
+                <button onclick="deleteContract('${pid}','${section}','${c.id}')" class="px-2 py-1 text-xs text-red-500 border border-red-200 rounded hover:bg-red-500 hover:text-white transition" title="删除合同"><i class="fa fa-trash"></i></button>
+            </div>
+        </div>
+    `).join('');
+    return `
+    <div class="p-4 bg-gray-50 rounded-xl">
+        <p class="text-sm text-gray-500 mb-2">📎 合同文件（${contracts.length} 份）</p>
+        ${contracts.length ? `<div class="space-y-2 mb-3">${listHtml}</div>` : '<p class="text-sm text-gray-400 mb-3">暂无合同，可上传 PDF 或图片</p>'}
+        <label class="inline-flex items-center gap-2 px-4 py-2 text-sm border border-dashed border-primary text-primary rounded-lg cursor-pointer hover:bg-primary hover:text-white transition btn-glass">
+            <i class="fa fa-upload"></i> 上传合同
+            <input type="file" accept="image/*,.pdf" class="hidden" onchange="uploadContract('${pid}','${section}',this)">
+        </label>
+    </div>`;
+}
+
+async function uploadContract(pid, section, input) {
+    const file = input && input.files && input.files[0];
+    if (!file) return;
+    if (file.size > CONTRACT_MAX_SIZE) {
+        showToast('单个合同文件不能超过 5MB');
+        input.value = '';
+        return;
+    }
+    const item = getCustomerItem(pid, section);
+    if (!item) { showToast('客户不存在'); input.value = ''; return; }
+    const totalSize = (item.contracts || []).reduce((s, c) => s + (c.size || 0), 0);
+    if (totalSize + file.size > 50 * 1024 * 1024) { showToast('该客户的合同附件已达 50MB 上限'); input.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+        try {
+            const b64 = String(reader.result).split(',')[1] || '';
+            if (!b64) throw new Error('读取失败');
+            if (!Array.isArray(item.contracts)) item.contracts = [];
+            item.contracts.push({
+                id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+                name: file.name,
+                size: file.size,
+                type: file.type || 'application/octet-stream',
+                data: b64,
+                uploadedAt: new Date().toISOString()
+            });
+            item.updatedAt = new Date().toISOString();
+            await saveData();
+            showToast('合同已上传');
+            if (section === 'completed') viewCompleted(pid); else viewProcessing(pid);
+        } catch (e) {
+            showToast('合同上传失败：' + e.message);
+        }
+    };
+    reader.onerror = () => { showToast('合同上传失败：文件读取错误'); };
+    reader.readAsDataURL(file);
+    input.value = '';
+}
+
+function openContract(pid, section, cid) {
+    const item = getCustomerItem(pid, section);
+    if (!item) return;
+    const c = (item.contracts || []).find(x => x.id === cid);
+    if (!c || !c.data) return showToast('合同文件不存在或已损坏');
+    try {
+        const bin = atob(c.data);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: c.type || 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);   // 延迟释放，避免新标签页打开失败
+    } catch (e) {
+        showToast('合同文件打开失败：数据损坏');
+    }
+}
+
+async function deleteContract(pid, section, cid) {
+    if (!confirm('确定删除这份合同吗？')) return;
+    const item = getCustomerItem(pid, section);
+    if (!item) return;
+    item.contracts = (item.contracts || []).filter(x => x.id !== cid);
+    item.updatedAt = new Date().toISOString();
+    await saveData();
+    showToast('合同已删除');
+    if (section === 'completed') viewCompleted(pid); else viewProcessing(pid);
 }
 // ==================== 新增/编辑办理中客户表单 ====================
 function openProcessingForm(existId = null) {
@@ -1486,6 +1599,7 @@ function viewProcessing(id) {
                 <p class="text-sm text-gray-500 mb-1">合作时间</p>
                 <p class="font-medium">${formatDate(item.startDate)} 至 ${formatDate(item.endDate)}</p>
             </div>
+            ${contractsBlockHtml(item.id, 'processing')}
             <div class="flex gap-3 pt-2">
                 <button onclick="closeModal(); editProcessing('${item.id}')" class="flex-1 py-3 border border-primary text-primary rounded-lg btn-glass">编辑</button>
                 <button onclick="moveToDone('${item.id}')" class="flex-1 py-3 bg-success text-white rounded-lg btn-glass btn-glow">标记完结</button>
@@ -1728,6 +1842,7 @@ function viewCompleted(id) {
                 <p class="text-sm text-gray-500 mb-1">合作时间</p>
                 <p class="font-medium">${formatDate(item.startDate)} 至 ${formatDate(item.endDate)}</p>
             </div>
+            ${contractsBlockHtml(item.id, 'completed')}
             <div class="flex gap-3 pt-2">
                 <button onclick="closeModal(); editCompleted('${item.id}')" class="flex-1 py-3 border border-primary text-primary rounded-lg btn-glass">编辑</button>
                 <button onclick="deleteCompleted('${item.id}')" class="flex-1 py-3 bg-red-500 text-white rounded-lg btn-glass btn-glow btn-glow-red">删除</button>
@@ -1750,35 +1865,37 @@ async function deleteCompleted(id) {
 }
 
 // ==================== 待办事项功能 ====================
-function openTodoForm() {
+function openTodoForm(existId = null) {
+    const item = existId ? data.todo.find(t => t.id === existId) : null;
     const html = `
     <div class="modal-inner-container p-6">
         <div class="flex justify-between items-center mb-6">
-            <h2 class="text-xl font-bold">新增待办事项</h2>
+            <h2 class="text-xl font-bold">${item ? '编辑待办事项' : '新增待办事项'}</h2>
             <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center btn-glass"><i class="fa fa-times"></i></button>
         </div>
         <form id="todoForm" class="space-y-4">
+            <input type="hidden" name="id" value="${item ? item.id : ''}">
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">待办内容 *</label>
-                <textarea name="content" rows="3" required placeholder="请输入待办内容" class="w-full resize-none"></textarea>
+                <textarea name="content" rows="3" required placeholder="请输入待办内容" class="w-full resize-none">${item ? escapeHtml(item.content || '') : ''}</textarea>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">截止日期</label>
-                    <input type="date" name="deadline" class="w-full">
+                    <input type="date" name="deadline" value="${item && item.deadline ? item.deadline : ''}" class="w-full">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">优先级</label>
                     <select name="priority" class="w-full">
-                        <option value="medium">中优先级</option>
-                        <option value="high">高优先级</option>
-                        <option value="low">低优先级</option>
+                        <option value="medium" ${item && item.priority === 'medium' ? 'selected' : ''}>中优先级</option>
+                        <option value="high" ${item && item.priority === 'high' ? 'selected' : ''}>高优先级</option>
+                        <option value="low" ${item && item.priority === 'low' ? 'selected' : ''}>低优先级</option>
                     </select>
                 </div>
             </div>
             <div class="flex gap-3 pt-4">
                 <button type="button" onclick="closeModal()" class="flex-1 py-3 border border-gray-200 rounded-lg text-gray-600 btn-glass">取消</button>
-                <button type="submit" class="flex-1 py-3 bg-primary text-white rounded-lg btn-glass btn-glow btn-glow-primary">添加</button>
+                <button type="submit" class="flex-1 py-3 bg-primary text-white rounded-lg btn-glass btn-glow btn-glow-primary">${item ? '保存修改' : '添加'}</button>
             </div>
         </form>
     </div>
@@ -1788,17 +1905,34 @@ function openTodoForm() {
     document.getElementById('todoForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
-        data.todo.push({
-            id: genId(),
-            content: formData.get('content').trim(),
-            deadline: formData.get('deadline'),
-            priority: formData.get('priority'),
-            done: false,
-            top: false,
-            createdAt: new Date().toISOString()
-        });
-        await saveData();
-        showToast('待办已添加');
+        const content = formData.get('content').trim();
+        if (!content) return showToast('请输入待办内容');
+        const deadline = formData.get('deadline');
+        const priority = formData.get('priority');
+        const editId = formData.get('id');
+        if (editId) {
+            // 编辑已有待办
+            const target = data.todo.find(t => t.id === editId);
+            if (!target) return showToast('待办不存在，可能已被删除');
+            target.content = content;
+            target.deadline = deadline;
+            target.priority = priority;
+            target.updatedAt = new Date().toISOString();
+            await saveData();
+            showToast('待办已更新');
+        } else {
+            data.todo.push({
+                id: genId(),
+                content: content,
+                deadline: deadline,
+                priority: priority,
+                done: false,
+                top: false,
+                createdAt: new Date().toISOString()
+            });
+            await saveData();
+            showToast('待办已添加');
+        }
         closeModal();
     });
 }
@@ -1968,9 +2102,31 @@ function updateStats() {
 }
 
 function openStatModal() {
-    if (typeof Chart === 'undefined') return showToast('图表组件加载失败，请检查网络后重试');
     showModal(document.getElementById('statModal'));
     setTimeout(() => {
+        if (typeof Chart === 'undefined') {
+            // 图表库未加载（离线/CDN 异常）：仍打开弹窗显示数字统计，图表区域提示
+            const statusC = document.getElementById('statusChart');
+            const feeC = document.getElementById('feeChart');
+            if (statusC) statusC.closest('.h-64')?.classList.add('hidden');
+            if (feeC) feeC.closest('.h-64')?.classList.add('hidden');
+            let tip = document.getElementById('statChartTip');
+            if (!tip) {
+                tip = document.createElement('p');
+                tip.id = 'statChartTip';
+                tip.className = 'text-sm text-gray-400 text-center py-4';
+                tip.textContent = '图表组件未加载（离线或网络异常），上方数字统计仍可用';
+                statusC?.parentElement?.appendChild(tip);
+            }
+            tip.classList.remove('hidden');
+            return;
+        }
+        const tip = document.getElementById('statChartTip');
+        if (tip) tip.classList.add('hidden');
+        const statusC2 = document.getElementById('statusChart');
+        if (statusC2) statusC2.closest('.h-64')?.classList.remove('hidden');
+        const feeC2 = document.getElementById('feeChart');
+        if (feeC2) feeC2.closest('.h-64')?.classList.remove('hidden');
         if (statusChart) statusChart.destroy();
         if (feeChart) feeChart.destroy();
         const statusCtx = document.getElementById('statusChart').getContext('2d');
@@ -2729,6 +2885,10 @@ window.deleteCompleted = deleteCompleted;
 window.toggleTodoDone = toggleTodoDone;
 window.toggleTodoTop = toggleTodoTop;
 window.deleteTodo = deleteTodo;
+window.openTodoForm = openTodoForm;
+window.uploadContract = uploadContract;
+window.openContract = openContract;
+window.deleteContract = deleteContract;
 window.deleteAccount = deleteAccount;
 
 init().catch(console.error);
